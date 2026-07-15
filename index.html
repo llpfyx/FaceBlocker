@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>FACE RAIDERS WEB</title>
+<link rel="stylesheet" href="style.css" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+
+  <!-- live camera feed used as AR background during capture + gameplay -->
+  <video id="bg-video" autoplay playsinline muted></video>
+  <canvas id="game-canvas"></canvas>
+
+  <div id="crosshair" class="hidden">
+    <div class="crosshair-line h"></div>
+    <div class="crosshair-line v"></div>
+  </div>
+
+  <!-- HUD (bottom "touch screen" style bar, 3DS flavor) -->
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="hp-bar-wrap"><div id="hp-bar"></div></div>
+      <div id="phase-label">PHASE 1</div>
+    </div>
+    <div id="hud-bottom">
+      <div class="hud-stat"><span class="hud-label">SCORE</span><span id="hud-score">0</span></div>
+      <div class="hud-stat"><span class="hud-label">KILLS</span><span id="hud-kills">0</span></div>
+      <div class="hud-stat"><span class="hud-label">COMBO</span><span id="hud-combo">0</span></div>
+    </div>
+  </div>
+
+  <div id="hit-flash" class="hidden"></div>
+
+  <button id="mobile-fire-btn" class="hidden">FIRE</button>
+
+  <!-- ===== TITLE ===== -->
+  <section id="screen-title" class="screen">
+    <div class="panel top-panel">
+      <h1 class="title-3ds">FACE<br/>RAIDERS<span class="web-suffix">WEB</span></h1>
+      <p class="subtitle">顔をアップロード or 撮影して、襲いくる自分の顔を撃退せよ</p>
+    </div>
+    <div class="panel bottom-panel">
+      <label class="field">
+        <span>プレイヤー名</span>
+        <input id="username-input" maxlength="12" placeholder="なまえ" />
+      </label>
+      <button id="btn-start" class="btn btn-primary">ゲームスタート</button>
+      <button id="btn-history" class="btn">じぶんの記録</button>
+      <button id="btn-ranking" class="btn">グローバルランキング</button>
+    </div>
+  </section>
+
+  <!-- ===== FACE CAPTURE ===== -->
+  <section id="screen-capture" class="screen hidden">
+    <div class="panel top-panel">
+      <h2>敵の顔を用意する</h2>
+      <p id="capture-hint">カメラで撮影するか、画像をアップロードしてください</p>
+    </div>
+    <div id="capture-stage">
+      <video id="capture-video" autoplay playsinline muted class="hidden"></video>
+      <canvas id="capture-canvas" class="hidden"></canvas>
+      <img id="capture-img" class="hidden" />
+      <div id="crop-overlay" class="hidden">
+        <div id="crop-box"></div>
+      </div>
+    </div>
+    <input id="file-input" type="file" accept="image/*" class="hidden" />
+    <div class="panel bottom-panel capture-controls">
+      <div id="capture-choice-buttons" class="btn-row">
+        <button id="btn-camera-open" class="btn">📷 カメラで撮影</button>
+        <button id="btn-upload-open" class="btn">🖼 アップロード</button>
+      </div>
+      <div id="capture-shoot-buttons" class="btn-row hidden">
+        <button id="btn-take-photo" class="btn btn-primary">この瞬間で撮影</button>
+        <button id="btn-capture-cancel" class="btn btn-ghost">もどる</button>
+      </div>
+      <div id="crop-buttons" class="btn-row hidden">
+        <button id="btn-crop-confirm" class="btn btn-primary">この範囲に決定</button>
+        <button id="btn-crop-retry" class="btn btn-ghost">やりなおす</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== READY ===== -->
+  <section id="screen-ready" class="screen hidden">
+    <div class="panel center-panel">
+      <img id="ready-face-preview" alt="敵の顔プレビュー" />
+      <h2>準備完了</h2>
+      <p class="controls-desc" id="controls-desc"></p>
+      <button id="btn-go" class="btn btn-primary btn-lg">たたかう</button>
+      <button id="btn-ready-back" class="btn btn-ghost">顔を選び直す</button>
+    </div>
+  </section>
+
+  <!-- ===== GAME OVER ===== -->
+  <section id="screen-gameover" class="screen hidden">
+    <div class="panel center-panel">
+      <h2 class="gameover-title">GAME OVER</h2>
+      <div class="result-stats">
+        <div><span class="hud-label">SCORE</span><strong id="result-score">0</strong></div>
+        <div><span class="hud-label">到達フェーズ</span><strong id="result-phase">1</strong></div>
+        <div><span class="hud-label">撃破数</span><strong id="result-kills">0</strong></div>
+      </div>
+      <button id="btn-submit-score" class="btn btn-primary">ランキングに送信</button>
+      <button id="btn-retry" class="btn">もう一度</button>
+      <button id="btn-gameover-title" class="btn btn-ghost">タイトルへ</button>
+    </div>
+  </section>
+
+  <!-- ===== RANKING ===== -->
+  <section id="screen-ranking" class="screen hidden">
+    <div class="panel top-panel">
+      <h2>グローバルランキング</h2>
+      <p id="ranking-status" class="subtitle"></p>
+    </div>
+    <div class="panel list-panel">
+      <ol id="ranking-list"></ol>
+    </div>
+    <div class="panel bottom-panel">
+      <button id="btn-ranking-back" class="btn">もどる</button>
+    </div>
+  </section>
+
+  <!-- ===== HISTORY (local only, includes face photo) ===== -->
+  <section id="screen-history" class="screen hidden">
+    <div class="panel top-panel">
+      <h2>じぶんの記録</h2>
+      <p class="subtitle">この端末に保存されたプレイ履歴（顔写真は公開されません）</p>
+    </div>
+    <div class="panel list-panel">
+      <ol id="history-list"></ol>
+    </div>
+    <div class="panel bottom-panel">
+      <button id="btn-history-back" class="btn">もどる</button>
+    </div>
+  </section>
+
+  <div id="orientation-permission" class="hidden">
+    <div class="orientation-inner">
+      <span class="orientation-text">ジャイロ照準を使う？</span>
+      <button id="btn-enable-gyro" class="btn btn-primary btn-sm">有効にする</button>
+      <button id="btn-skip-gyro" class="btn btn-ghost btn-sm">あとで</button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
