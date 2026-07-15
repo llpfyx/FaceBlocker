@@ -1,10 +1,26 @@
-// Lightweight synthesized SFX (no audio assets needed).
+// Synthesized SFX + an original looping battle theme, all via WebAudio.
+// No audio asset files — everything here is generated at runtime.
 
 let ctx = null;
 function getCtx() {
   if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
   if (ctx.state === "suspended") ctx.resume();
   return ctx;
+}
+
+let noiseBuffer = null;
+function getNoiseBuffer(c) {
+  if (!noiseBuffer) {
+    const len = Math.floor(c.sampleRate * 0.3);
+    noiseBuffer = c.createBuffer(1, len, c.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuffer;
+}
+
+function midiFreq(m) {
+  return 440 * Math.pow(2, (m - 69) / 12);
 }
 
 function tone({ freq = 440, duration = 0.12, type = "square", gain = 0.15, slideTo = null }) {
@@ -23,6 +39,38 @@ function tone({ freq = 440, duration = 0.12, type = "square", gain = 0.15, slide
   osc.stop(c.currentTime + duration + 0.02);
 }
 
+// bright, punchy "blip" used for the satisfying hit/kill chimes
+function blip({ freq, duration = 0.09, type = "triangle", gain = 0.2, delay = 0 }) {
+  const c = getCtx();
+  const t = c.currentTime + delay;
+  const osc = c.createOscillator();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0006, t + duration);
+  osc.connect(g).connect(c.destination);
+  osc.start(t);
+  osc.stop(t + duration + 0.02);
+}
+
+function sparkle({ delay = 0, gain = 0.12, duration = 0.09 } = {}) {
+  const c = getCtx();
+  const t = c.currentTime + delay;
+  const src = c.createBufferSource();
+  src.buffer = getNoiseBuffer(c);
+  const filter = c.createBiquadFilter();
+  filter.type = "highpass";
+  filter.frequency.value = 6000;
+  const g = c.createGain();
+  g.gain.setValueAtTime(gain, t);
+  g.gain.exponentialRampToValueAtTime(0.0005, t + duration);
+  src.connect(filter).connect(g).connect(c.destination);
+  src.start(t);
+  src.stop(t + duration + 0.02);
+}
+
 export const sfx = {
   unlock() {
     getCtx();
@@ -30,11 +78,20 @@ export const sfx = {
   shoot() {
     tone({ freq: 900, slideTo: 300, duration: 0.08, type: "square", gain: 0.08 });
   },
+  // quick bright "tink" — enemy took a hit but survived
   hit() {
-    tone({ freq: 220, slideTo: 60, duration: 0.15, type: "sawtooth", gain: 0.18 });
+    blip({ freq: 1050, duration: 0.07, gain: 0.16 });
+    blip({ freq: 2100, duration: 0.05, gain: 0.06 });
   },
+  // satisfying rising chime + sparkle burst — Block-Blast-style clear feel
   kill() {
-    tone({ freq: 660, slideTo: 1200, duration: 0.18, type: "triangle", gain: 0.16 });
+    const base = 1046.5; // C6
+    const ratios = [1, 1.26, 1.5, 2];
+    ratios.forEach((r, i) => {
+      blip({ freq: base * r, duration: 0.16, gain: 0.2 - i * 0.02, delay: i * 0.045, type: "triangle" });
+    });
+    sparkle({ delay: 0.02, gain: 0.14, duration: 0.14 });
+    sparkle({ delay: 0.12, gain: 0.08, duration: 0.1 });
   },
   enemyAttack() {
     tone({ freq: 140, slideTo: 40, duration: 0.3, type: "sawtooth", gain: 0.22 });
@@ -46,3 +103,182 @@ export const sfx = {
     tone({ freq: 300, slideTo: 40, duration: 0.9, type: "sawtooth", gain: 0.22 });
   },
 };
+
+// ---------------------------------------------------------------------------
+// Battle BGM — an original, epic sci-fi fanfare (brass-style pad chords over
+// timpani/snare percussion with a triumphant arpeggio motif). Not a
+// reproduction of any existing copyrighted theme — just the same genre
+// vibe — built entirely from oscillators via a standard lookahead scheduler.
+// ---------------------------------------------------------------------------
+
+const BPM = 108;
+const BEAT = 60 / BPM;
+
+// i - VI - III - VII, then i - VI - iv - V (D minor "epic trailer" progression)
+const CHORDS = [
+  { bass: 38, pad: [62, 65, 69] }, // Dm
+  { bass: 34, pad: [58, 62, 65] }, // Bb
+  { bass: 41, pad: [53, 57, 60] }, // F
+  { bass: 36, pad: [60, 64, 67] }, // C
+  { bass: 38, pad: [62, 65, 69] }, // Dm
+  { bass: 34, pad: [58, 62, 65] }, // Bb
+  { bass: 31, pad: [55, 58, 62] }, // Gm
+  { bass: 33, pad: [57, 61, 64] }, // A
+];
+
+let bgmGain = null;
+function getBgmGain(c) {
+  if (!bgmGain) {
+    bgmGain = c.createGain();
+    bgmGain.gain.value = 0;
+    bgmGain.connect(c.destination);
+  }
+  return bgmGain;
+}
+
+class BattleMusic {
+  constructor() {
+    this._playing = false;
+    this._nextBarTime = 0;
+    this._barIndex = 0;
+    this._timerId = null;
+  }
+
+  start() {
+    if (this._playing) return;
+    const c = getCtx();
+    this._playing = true;
+    this._gain = getBgmGain(c);
+    this._gain.gain.cancelScheduledValues(c.currentTime);
+    this._gain.gain.setValueAtTime(this._gain.gain.value, c.currentTime);
+    this._gain.gain.linearRampToValueAtTime(0.22, c.currentTime + 1.8);
+    this._barIndex = 0;
+    this._nextBarTime = c.currentTime + 0.1;
+    this._scheduler();
+  }
+
+  stop() {
+    if (!this._playing) return;
+    this._playing = false;
+    clearTimeout(this._timerId);
+    const c = getCtx();
+    if (this._gain) {
+      this._gain.gain.cancelScheduledValues(c.currentTime);
+      this._gain.gain.setValueAtTime(this._gain.gain.value, c.currentTime);
+      this._gain.gain.linearRampToValueAtTime(0, c.currentTime + 0.7);
+    }
+  }
+
+  _scheduler() {
+    if (!this._playing) return;
+    const c = getCtx();
+    while (this._nextBarTime < c.currentTime + 0.15) {
+      this._scheduleBar(this._barIndex % CHORDS.length, this._nextBarTime);
+      this._nextBarTime += BEAT * 4;
+      this._barIndex++;
+    }
+    this._timerId = setTimeout(() => this._scheduler(), 40);
+  }
+
+  _scheduleBar(chordIdx, t) {
+    const chord = CHORDS[chordIdx];
+    this._playPad(chord, t);
+    this._playBass(chord.bass, t);
+    this._playTimp(t);
+    this._playTimp(t + BEAT * 2);
+    this._playSnare(t + BEAT * 1.5);
+    this._playSnare(t + BEAT * 3.5);
+    if (chordIdx % 2 === 0) this._playFanfare(chord, t);
+  }
+
+  _playPad(chord, t) {
+    const c = getCtx();
+    const g = c.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.5, t + 0.18);
+    g.gain.setValueAtTime(0.5, t + BEAT * 3.2);
+    g.gain.linearRampToValueAtTime(0, t + BEAT * 4);
+    const filter = c.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 1400;
+    g.connect(filter).connect(this._gain);
+    for (const m of chord.pad) {
+      for (const type of ["sawtooth", "square"]) {
+        const osc = c.createOscillator();
+        osc.type = type;
+        osc.frequency.value = midiFreq(m) * (type === "square" ? 1 : 1.003);
+        osc.connect(g);
+        osc.start(t);
+        osc.stop(t + BEAT * 4 + 0.05);
+      }
+    }
+  }
+
+  _playBass(m, t) {
+    const c = getCtx();
+    const osc = c.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.value = midiFreq(m);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.35, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + BEAT * 4);
+    osc.connect(g).connect(this._gain);
+    osc.start(t);
+    osc.stop(t + BEAT * 4 + 0.05);
+  }
+
+  _playFanfare(chord, t) {
+    const c = getCtx();
+    const notes = [chord.pad[0], chord.pad[1], chord.pad[2], chord.pad[0] + 12];
+    const durs = [BEAT * 0.4, BEAT * 0.4, BEAT * 0.4, BEAT * 0.9];
+    let nt = t;
+    for (let i = 0; i < notes.length; i++) {
+      const osc = c.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = midiFreq(notes[i]);
+      const filter = c.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 2200;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, nt);
+      g.gain.linearRampToValueAtTime(0.28, nt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, nt + durs[i]);
+      osc.connect(filter).connect(g).connect(this._gain);
+      osc.start(nt);
+      osc.stop(nt + durs[i] + 0.02);
+      nt += durs[i];
+    }
+  }
+
+  _playTimp(t) {
+    const c = getCtx();
+    const osc = c.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(170, t);
+    osc.frequency.exponentialRampToValueAtTime(50, t + 0.26);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    osc.connect(g).connect(this._gain);
+    osc.start(t);
+    osc.stop(t + 0.3);
+  }
+
+  _playSnare(t) {
+    const c = getCtx();
+    const src = c.createBufferSource();
+    src.buffer = getNoiseBuffer(c);
+    const filter = c.createBiquadFilter();
+    filter.type = "bandpass";
+    filter.frequency.value = 1800;
+    filter.Q.value = 0.8;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    src.connect(filter).connect(g).connect(this._gain);
+    src.start(t);
+    src.stop(t + 0.13);
+  }
+}
+
+export const battleMusic = new BattleMusic();

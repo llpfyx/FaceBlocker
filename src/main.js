@@ -39,6 +39,7 @@ const dom = {
   kills: $("hud-kills"),
   combo: $("hud-combo"),
   hitFlash: $("hit-flash"),
+  enemyMarkers: $("enemy-markers"),
   mobileFireBtn: $("mobile-fire-btn"),
   orientationPrompt: $("orientation-permission"),
   gyroBtn: $("btn-enable-gyro"),

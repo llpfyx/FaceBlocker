@@ -1,12 +1,13 @@
 import * as THREE from "three";
-import { sfx } from "./audio.js";
+import { sfx, battleMusic } from "./audio.js";
 import { SpaceBackdrop } from "./space.js";
 
 const PITCH_MIN = THREE.MathUtils.degToRad(-70);
 const PITCH_MAX = THREE.MathUtils.degToRad(80);
 const MOUSE_SENS = 0.0022;
 const TOUCH_SENS = 0.006;
-const GYRO_SENS = 1.0;
+const GYRO_SENS = 2.6;
+const GYRO_SMOOTHING = 18; // higher = snappier tracking of the gyro target
 
 function isTouchDevice() {
   return "ontouchstart" in window || navigator.maxTouchPoints > 0;
@@ -21,6 +22,10 @@ function phaseTint(phase) {
 
 function normalizeAngleDeltaDeg(a) {
   return ((a + 540) % 360) - 180;
+}
+
+function cssColor(hex) {
+  return `#${hex.toString(16).padStart(6, "0")}`;
 }
 
 export class Game {
@@ -52,6 +57,7 @@ export class Game {
 
     this.enemies = [];
     this.faceTexture = null;
+    this._markerEls = new Map();
 
     this.player = { hp: 100, maxHp: 100 };
     this.stats = { score: 0, kills: 0, combo: 0, phase: 1, nextPhaseAt: 5 };
@@ -63,6 +69,8 @@ export class Game {
     this._touchLook = null; // active look-drag touch id
     this._gyroActive = false;
     this._gyroBase = null;
+    this._gyroTargetYaw = 0;
+    this._gyroTargetPitch = 0;
     this._pointerLocked = false;
 
     this._onResize = this._onResize.bind(this);
@@ -136,8 +144,8 @@ export class Game {
     }
     const dYaw = normalizeAngleDeltaDeg(e.alpha - this._gyroBase.alpha);
     const dPitch = e.beta - this._gyroBase.beta;
-    this.yaw = THREE.MathUtils.degToRad(-dYaw) * GYRO_SENS;
-    this.pitch = THREE.MathUtils.clamp(THREE.MathUtils.degToRad(dPitch) * GYRO_SENS, PITCH_MIN, PITCH_MAX);
+    this._gyroTargetYaw = THREE.MathUtils.degToRad(-dYaw) * GYRO_SENS;
+    this._gyroTargetPitch = THREE.MathUtils.clamp(THREE.MathUtils.degToRad(dPitch) * GYRO_SENS, PITCH_MIN, PITCH_MAX);
   }
 
   _onCanvasDown() {
@@ -196,11 +204,13 @@ export class Game {
     this.running = true;
     this.lastTime = performance.now();
     this._updateHud();
+    battleMusic.start();
     requestAnimationFrame(this._loop);
   }
 
   destroy() {
     this.running = false;
+    battleMusic.stop();
     window.removeEventListener("resize", this._onResize);
     window.removeEventListener("deviceorientation", this._onDeviceOrientation);
     document.removeEventListener("mousemove", this._onMouseMove);
@@ -214,6 +224,8 @@ export class Game {
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     for (const en of this.enemies) this.scene.remove(en.group);
     this.enemies = [];
+    for (const el of this._markerEls.values()) el.remove();
+    this._markerEls.clear();
     this.space.dispose();
     this.renderer.dispose();
   }
@@ -419,6 +431,62 @@ export class Game {
     }
   }
 
+  _updateEnemyMarkers() {
+    const seen = new Set();
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const margin = 0.92;
+
+    for (const enemy of this.enemies) {
+      seen.add(enemy);
+      const worldPos = enemy.group.position;
+      const toPoint = worldPos.clone().sub(this.camera.position);
+      const behind = toPoint.dot(camDir) < 0;
+
+      const ndc = worldPos.clone().project(this.camera);
+      if (behind) {
+        ndc.x = -ndc.x;
+        ndc.y = -ndc.y;
+      }
+      const onScreen = !behind && Math.abs(ndc.x) <= 1 && Math.abs(ndc.y) <= 1;
+
+      let el = this._markerEls.get(enemy);
+      if (onScreen) {
+        if (el) el.style.display = "none";
+        continue;
+      }
+      if (!el) {
+        el = document.createElement("div");
+        el.className = "enemy-marker";
+        this.dom.enemyMarkers.appendChild(el);
+        this._markerEls.set(enemy, el);
+      }
+      el.style.display = "block";
+
+      const maxAbs = Math.max(Math.abs(ndc.x), Math.abs(ndc.y)) || 1e-6;
+      const scale = margin / maxAbs;
+      const ex = ndc.x * scale;
+      const ey = ndc.y * scale;
+      const screenX = (ex * 0.5 + 0.5) * w;
+      const screenY = (1 - (ey * 0.5 + 0.5)) * h;
+      const angleDeg = (Math.atan2(-ey, ex) * 180) / Math.PI;
+
+      el.style.left = `${screenX}px`;
+      el.style.top = `${screenY}px`;
+      el.style.transform = `translate(-30%, -50%) rotate(${angleDeg}deg)`;
+      el.style.borderColor = `transparent transparent transparent ${cssColor(phaseTint(this.stats.phase))}`;
+    }
+
+    for (const [enemy, el] of this._markerEls) {
+      if (!seen.has(enemy)) {
+        el.remove();
+        this._markerEls.delete(enemy);
+      }
+    }
+  }
+
   _updateHud() {
     const { dom, player, stats } = this;
     const frac = Math.max(0, player.hp / player.maxHp);
@@ -445,11 +513,17 @@ export class Game {
       const dt = Math.min(64, now - this.lastTime);
       this.lastTime = now;
 
+      if (this._gyroActive) {
+        const k = 1 - Math.exp(-GYRO_SMOOTHING * (dt / 1000));
+        this.yaw += (this._gyroTargetYaw - this.yaw) * k;
+        this.pitch += (this._gyroTargetPitch - this.pitch) * k;
+      }
       this.camera.rotation.y = this.yaw;
       this.camera.rotation.x = this.pitch;
 
       this._maybeSpawn(dt);
       this._updateEnemies(now);
+      this._updateEnemyMarkers();
       this._updateHud();
       this.space.update(now, dt);
 

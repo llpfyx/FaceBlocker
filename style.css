@@ -74,11 +74,29 @@ html, body {
   opacity: .85;
 }
 
+/* ---------- off-screen enemy edge indicators ---------- */
+#enemy-markers {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.enemy-marker {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 9px 0 9px 15px;
+  border-color: transparent transparent transparent #ffd23f;
+  filter: drop-shadow(0 0 3px #000a);
+  transform-origin: 30% 50%;
+}
+
 /* ---------- HUD (3DS dual-screen inspired) ---------- */
 #hud {
   position: fixed;
   inset: 0;
-  z-index: 3;
+  z-index: 2;
   pointer-events: none;
   display: flex;
   flex-direction: column;
