@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { sfx } from "./audio.js";
+import { SpaceBackdrop } from "./space.js";
 
 const PITCH_MIN = THREE.MathUtils.degToRad(-70);
 const PITCH_MAX = THREE.MathUtils.degToRad(80);
@@ -27,7 +28,7 @@ export class Game {
    * @param {Object} opts
    * @param {HTMLCanvasElement} opts.canvas
    * @param {string} opts.faceDataURL
-   * @param {Object} opts.dom - HUD/DOM refs: hpBar, phaseLabel, score, kills, combo, hitFlash, crosshair, mobileFireBtn, orientationPrompt, gyroBtn
+   * @param {Object} opts.dom - HUD/DOM refs: hpBar, phaseLabel, planetLabel, score, kills, combo, hitFlash, mobileFireBtn, orientationPrompt, gyroBtn, gyroSkipBtn
    * @param {(result:{score:number, phase:number, kills:number}) => void} opts.onGameOver
    */
   constructor({ canvas, faceDataURL, dom, onGameOver }) {
@@ -35,13 +36,16 @@ export class Game {
     this.dom = dom;
     this.onGameOver = onGameOver;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
     this.camera.rotation.order = "YXZ";
+
+    this.space = new SpaceBackdrop(this.scene);
+    this.dom.planetLabel.textContent = this.space.currentPlanet.name;
 
     this.yaw = 0;
     this.pitch = 0;
@@ -210,6 +214,7 @@ export class Game {
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
     for (const en of this.enemies) this.scene.remove(en.group);
     this.enemies = [];
+    this.space.dispose();
     this.renderer.dispose();
   }
 
@@ -255,7 +260,7 @@ export class Game {
     let hpBar = null;
     if (ps.maxHp > 1) {
       hpBar = this._makeHpBarSprite();
-      hpBar.position.set(0, 0.85, 0);
+      hpBar.sprite.position.set(0, 0.85, 0);
       group.add(hpBar.sprite);
     }
 
@@ -351,6 +356,8 @@ export class Game {
     this.stats.phase += 1;
     this.stats.nextPhaseAt += 5 + (this.stats.phase - 1) * 2;
     sfx.phaseUp();
+    const planet = this.space.setPlanetIndex(this.stats.phase - 1);
+    this.dom.planetLabel.textContent = planet.name;
   }
 
   _enemyAttacks(enemy) {
@@ -430,17 +437,25 @@ export class Game {
 
   _loop(now) {
     if (!this.running) return;
-    const dt = Math.min(64, now - this.lastTime);
-    this.lastTime = now;
-
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch;
-
-    this._maybeSpawn(dt);
-    this._updateEnemies(now);
-    this._updateHud();
-
-    this.renderer.render(this.scene, this.camera);
+    // Schedule the next frame first so a transient error below can never
+    // permanently freeze the game (rAF wouldn't get re-armed otherwise).
     requestAnimationFrame(this._loop);
+
+    try {
+      const dt = Math.min(64, now - this.lastTime);
+      this.lastTime = now;
+
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
+
+      this._maybeSpawn(dt);
+      this._updateEnemies(now);
+      this._updateHud();
+      this.space.update(now, dt);
+
+      this.renderer.render(this.scene, this.camera);
+    } catch (err) {
+      console.error("[Game] frame error (recovered):", err);
+    }
   }
 }

@@ -27,7 +27,6 @@ function isTouchDevice() {
   return "ontouchstart" in window || navigator.maxTouchPoints > 0;
 }
 
-const bgVideo = $("bg-video");
 const gameCanvas = $("game-canvas");
 const crosshair = $("crosshair");
 const hud = $("hud");
@@ -35,6 +34,7 @@ const hud = $("hud");
 const dom = {
   hpBar: $("hp-bar"),
   phaseLabel: $("phase-label"),
+  planetLabel: $("planet-label"),
   score: $("hud-score"),
   kills: $("hud-kills"),
   combo: $("hud-combo"),
@@ -59,7 +59,7 @@ let currentGame = null;
 let rankingReturnTo = "title";
 let lastResult = null;
 let scoreSubmitted = false;
-let bgStream = null;
+let currentFacingMode = "user";
 
 // ---------- username persistence ----------
 const usernameInput = $("username-input");
@@ -92,16 +92,23 @@ function resetCaptureScreen() {
   $("capture-hint").textContent = "カメラで撮影するか、画像をアップロードしてください";
 }
 
-$("btn-camera-open").addEventListener("click", async () => {
+async function openCameraWith(facingMode) {
   try {
-    await faceCapture.openCamera("user");
+    await faceCapture.openCamera(facingMode);
+    currentFacingMode = facingMode;
     $("capture-video").classList.remove("hidden");
     $("capture-choice-buttons").classList.add("hidden");
     $("capture-shoot-buttons").classList.remove("hidden");
     $("capture-hint").textContent = "顔がまるく収まったら撮影しよう";
   } catch (e) {
-    alert("カメラを起動できませんでした。カメラの権限を確認してください。");
+    alert("カメラを起動できませんでした。カメラの権限や、端末にそのカメラが搭載されているか確認してください。");
   }
+}
+
+$("btn-camera-user").addEventListener("click", () => openCameraWith("user"));
+$("btn-camera-environment").addEventListener("click", () => openCameraWith("environment"));
+$("btn-camera-switch").addEventListener("click", () => {
+  openCameraWith(currentFacingMode === "user" ? "environment" : "user");
 });
 
 $("btn-upload-open").addEventListener("click", () => $("file-input").click());
@@ -151,22 +158,7 @@ $("btn-go").addEventListener("click", async () => {
   await startGame();
 });
 
-async function ensureBgCamera() {
-  if (bgStream) return;
-  try {
-    bgStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
-      audio: false,
-    });
-    bgVideo.srcObject = bgStream;
-    await bgVideo.play();
-  } catch (e) {
-    // AR background is decorative only — proceed without it if denied/unavailable
-  }
-}
-
 async function startGame() {
-  await ensureBgCamera();
   hideAllScreens();
   crosshair.classList.remove("hidden");
   hud.classList.remove("hidden");

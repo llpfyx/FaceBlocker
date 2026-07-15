@@ -28,15 +28,16 @@ html, body {
 .hidden { display: none !important; }
 
 /* ---------- full-screen layers ---------- */
-#bg-video, #game-canvas {
+#game-canvas {
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  z-index: 1;
+  pointer-events: auto;
+  background: #02040c;
 }
-#bg-video { z-index: 0; background: #000; transform: scaleX(-1); }
-#game-canvas { z-index: 1; pointer-events: auto; }
 
 #hit-flash {
   position: fixed;
@@ -108,12 +109,17 @@ html, body {
   background: linear-gradient(90deg, #4ade80, #a3e635);
   transition: width .2s ease, background .2s ease;
 }
+#phase-planet-wrap { text-align: right; white-space: nowrap; }
 #phase-label {
   font-weight: 700;
   letter-spacing: .05em;
   color: var(--n3ds-accent);
-  white-space: nowrap;
   font-size: 14px;
+}
+#planet-label {
+  font-size: 11px;
+  letter-spacing: .1em;
+  opacity: .75;
 }
 #hud-bottom {
   margin: 0 14px 14px;
@@ -215,6 +221,8 @@ html, body {
 .btn-lg { font-size: 20px; padding: 18px; }
 .btn-row { display: flex; gap: 10px; }
 .btn-row .btn { flex: 1; }
+.btn-row.wrap { flex-wrap: wrap; }
+.btn-row.wrap .btn { flex: 1 1 45%; }
 
 /* ---------- capture screen ---------- */
 #capture-stage {
