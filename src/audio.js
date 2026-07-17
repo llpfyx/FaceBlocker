@@ -83,15 +83,30 @@ export const sfx = {
     blip({ freq: 1050, duration: 0.07, gain: 0.16 });
     blip({ freq: 2100, duration: 0.05, gain: 0.06 });
   },
-  // satisfying rising chime + sparkle burst — Block-Blast-style clear feel
-  kill() {
-    const base = 1046.5; // C6
+  // satisfying rising chime + sparkle burst — Block-Blast-style clear feel.
+  // Pitch climbs a little with combo (capped) so a streak sounds increasingly
+  // triumphant instead of identical every time — a small but effective
+  // "dopamine ladder" trick.
+  kill(combo = 0) {
+    const comboStep = Math.min(combo, 10);
+    const base = 1046.5 * Math.pow(2, comboStep / 24); // C6, rising up to ~a fifth over a streak
     const ratios = [1, 1.26, 1.5, 2];
     ratios.forEach((r, i) => {
       blip({ freq: base * r, duration: 0.16, gain: 0.2 - i * 0.02, delay: i * 0.045, type: "triangle" });
     });
     sparkle({ delay: 0.02, gain: 0.14, duration: 0.14 });
     sparkle({ delay: 0.12, gain: 0.08, duration: 0.1 });
+  },
+  // extra flourish every few kills in a row — bigger ascending run + shimmer
+  comboMilestone() {
+    const notes = [1, 1.26, 1.5, 1.78, 2, 2.52];
+    const base = 784; // G5
+    notes.forEach((r, i) => {
+      blip({ freq: base * r, duration: 0.2, gain: 0.22 - i * 0.015, delay: i * 0.05, type: "triangle" });
+    });
+    sparkle({ delay: 0.05, gain: 0.18, duration: 0.2 });
+    sparkle({ delay: 0.18, gain: 0.12, duration: 0.16 });
+    sparkle({ delay: 0.3, gain: 0.08, duration: 0.12 });
   },
   enemyAttack() {
     tone({ freq: 140, slideTo: 40, duration: 0.3, type: "sawtooth", gain: 0.22 });

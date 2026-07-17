@@ -1,4 +1,7 @@
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { sfx, battleMusic } from "./audio.js";
 import { SpaceBackdrop } from "./space.js";
 
@@ -20,12 +23,40 @@ function phaseTint(phase) {
   return 0x9c2a2a;
 }
 
-function normalizeAngleDeltaDeg(a) {
-  return ((a + 540) % 360) - 180;
-}
-
 function cssColor(hex) {
   return `#${hex.toString(16).padStart(6, "0")}`;
+}
+
+// ---------- device-orientation -> quaternion (full 360deg, any device tilt) ----------
+// Same math as three.js's own DeviceOrientationControls reference implementation:
+// naively treating `alpha` as yaw breaks down once the phone is tilted away from flat
+// (the normal way you hold it to "look around"), so we build a proper rotation
+// quaternion from alpha/beta/gamma + current screen angle instead.
+const GYRO_ZEE = new THREE.Vector3(0, 0, 1);
+const GYRO_Q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // -90deg around X
+const _gyroEuler = new THREE.Euler();
+const _gyroQuat = new THREE.Quaternion();
+const _gyroScreenQuat = new THREE.Quaternion();
+const _gyroRelQuat = new THREE.Quaternion();
+const _gyroOutEuler = new THREE.Euler();
+
+function deviceOrientationToQuaternion(alpha, beta, gamma, screenAngleDeg, target) {
+  _gyroEuler.set(
+    THREE.MathUtils.degToRad(beta),
+    THREE.MathUtils.degToRad(alpha),
+    THREE.MathUtils.degToRad(-gamma),
+    "YXZ"
+  );
+  target.setFromEuler(_gyroEuler);
+  target.multiply(GYRO_Q1); // camera looks out the back of the device, not the top
+  target.multiply(_gyroScreenQuat.setFromAxisAngle(GYRO_ZEE, -THREE.MathUtils.degToRad(screenAngleDeg)));
+  return target;
+}
+
+function currentScreenAngle() {
+  if (screen.orientation && typeof screen.orientation.angle === "number") return screen.orientation.angle;
+  if (typeof window.orientation === "number") return window.orientation;
+  return 0;
 }
 
 export class Game {
@@ -41,13 +72,33 @@ export class Game {
     this.dom = dom;
     this.onGameOver = onGameOver;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    // antialias is skipped: once post-processing renders to an intermediate
+    // texture, the canvas context's own MSAA no longer does anything useful
+    // for the final image, it just costs GPU time.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
     this.camera.rotation.order = "YXZ";
+
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // Bloom is by far the most expensive part of the pipeline (multi-pass
+    // blur), so it runs at a fraction of screen resolution — bloom is a soft
+    // blurred glow anyway, so the lower internal res is barely noticeable.
+    this._bloomScale = 0.5;
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth * this._bloomScale, window.innerHeight * this._bloomScale),
+      0.5, // strength
+      0.5, // radius
+      0.3 // threshold
+    );
+    this.composer.addPass(this.bloomPass);
+    this._perfCheckDone = false;
+    this._perfFrameCount = 0;
+    this._perfTimeTotal = 0;
 
     this.space = new SpaceBackdrop(this.scene);
     this.dom.planetLabel.textContent = this.space.currentPlanet.name;
@@ -58,6 +109,10 @@ export class Game {
     this.enemies = [];
     this.faceTexture = null;
     this._markerEls = new Map();
+    this._bursts = [];
+    this._shakeUntil = 0;
+    this._shakeMagnitude = 0;
+    this._shakeDuration = 1;
 
     this.player = { hp: 100, maxHp: 100 };
     this.stats = { score: 0, kills: 0, combo: 0, phase: 1, nextPhaseAt: 5 };
@@ -68,9 +123,11 @@ export class Game {
 
     this._touchLook = null; // active look-drag touch id
     this._gyroActive = false;
-    this._gyroBase = null;
+    this._gyroBaseQuatInverse = null;
     this._gyroTargetYaw = 0;
     this._gyroTargetPitch = 0;
+    this._gyroUnwrappedYaw = 0;
+    this._gyroLastRawYawRad = null;
     this._pointerLocked = false;
 
     this._onResize = this._onResize.bind(this);
@@ -85,6 +142,13 @@ export class Game {
 
     this._loadFaceTexture(faceDataURL);
     this._setupControls();
+
+    // Warm up shader compilation (bloom's mip-chain shaders in particular
+    // are expensive to compile) right now, synchronously, instead of during
+    // the first real gameplay frames — otherwise that one-time stall gets
+    // measured as "sustained slowness" by the perf check below and bloom
+    // gets disabled even on hardware that runs it perfectly fine.
+    this.composer.render();
   }
 
   _loadFaceTexture(dataURL) {
@@ -129,7 +193,9 @@ export class Game {
       }
       window.addEventListener("deviceorientation", this._onDeviceOrientation);
       this._gyroActive = true;
-      this._gyroBase = null;
+      this._gyroBaseQuatInverse = null;
+      this._gyroUnwrappedYaw = 0;
+      this._gyroLastRawYawRad = null;
       this.dom.orientationPrompt.classList.add("hidden");
     } catch (e) {
       // gyro unavailable — fall back silently to touch-drag look
@@ -137,15 +203,33 @@ export class Game {
   }
 
   _onDeviceOrientation(e) {
-    if (e.alpha == null || e.beta == null) return;
-    if (!this._gyroBase) {
-      this._gyroBase = { alpha: e.alpha, beta: e.beta };
+    if (e.alpha == null || e.beta == null || e.gamma == null) return;
+    const screenAngle = currentScreenAngle();
+    deviceOrientationToQuaternion(e.alpha, e.beta, e.gamma, screenAngle, _gyroQuat);
+
+    if (!this._gyroBaseQuatInverse) {
+      this._gyroBaseQuatInverse = _gyroQuat.clone().invert();
       return;
     }
-    const dYaw = normalizeAngleDeltaDeg(e.alpha - this._gyroBase.alpha);
-    const dPitch = e.beta - this._gyroBase.beta;
-    this._gyroTargetYaw = THREE.MathUtils.degToRad(-dYaw) * GYRO_SENS;
-    this._gyroTargetPitch = THREE.MathUtils.clamp(THREE.MathUtils.degToRad(dPitch) * GYRO_SENS, PITCH_MIN, PITCH_MAX);
+    _gyroRelQuat.copy(this._gyroBaseQuatInverse).multiply(_gyroQuat);
+    _gyroOutEuler.setFromQuaternion(_gyroRelQuat, "YXZ");
+
+    // euler.y wraps at +-PI; unwrap it into a continuous angle so a full
+    // physical spin (or several) tracks smoothly instead of snapping back
+    // partway through — this is the actual fix for "not 360deg-capable".
+    const rawYawRad = -_gyroOutEuler.y;
+    if (this._gyroLastRawYawRad != null) {
+      let delta = rawYawRad - this._gyroLastRawYawRad;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      this._gyroUnwrappedYaw += delta;
+    } else {
+      this._gyroUnwrappedYaw = rawYawRad;
+    }
+    this._gyroLastRawYawRad = rawYawRad;
+
+    this._gyroTargetYaw = this._gyroUnwrappedYaw * GYRO_SENS;
+    this._gyroTargetPitch = THREE.MathUtils.clamp(-_gyroOutEuler.x * GYRO_SENS, PITCH_MIN, PITCH_MAX);
   }
 
   _onCanvasDown() {
@@ -198,6 +282,29 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.bloomPass.resolution.set(window.innerWidth * this._bloomScale, window.innerHeight * this._bloomScale);
+  }
+
+  // Bloom (UnrealBloomPass) is by far the heaviest part of the render
+  // pipeline. On weak/software-rendered GPUs it can tank the frame rate
+  // enough to make the game feel sluggish (worse: it slows down gameplay
+  // pacing too, since dt is capped at 64ms per frame). Playability matters
+  // far more than the glow, so auto-disable bloom if the first couple
+  // seconds are running well under 30fps.
+  _trackPerf(rawDt) {
+    if (this._perfCheckDone || rawDt <= 0) return;
+    this._perfFrameCount++;
+    this._perfTimeTotal += rawDt;
+    // React based on elapsed wall-clock time, not frame count — on a slow
+    // device frames arrive rarely, so waiting for a fixed frame count would
+    // take far too long to kick in on exactly the devices that need it fast.
+    if (this._perfTimeTotal < 1200) return;
+    this._perfCheckDone = true;
+    const avgFrameMs = this._perfTimeTotal / this._perfFrameCount;
+    if (avgFrameMs > 33) {
+      this.composer.passes = this.composer.passes.filter((p) => p !== this.bloomPass);
+    }
   }
 
   start() {
@@ -226,7 +333,15 @@ export class Game {
     this.enemies = [];
     for (const el of this._markerEls.values()) el.remove();
     this._markerEls.clear();
+    for (const b of this._bursts) {
+      this.scene.remove(b.points);
+      b.points.geometry.dispose();
+      b.points.material.dispose();
+    }
+    this._bursts = [];
+    this.dom.scorePopups.innerHTML = "";
     this.space.dispose();
+    this.composer.dispose();
     this.renderer.dispose();
   }
 
@@ -352,15 +467,106 @@ export class Game {
 
   _killEnemy(enemy) {
     enemy.dead = true;
-    sfx.kill();
     this.stats.kills += 1;
     this.stats.combo += 1;
     const comboMult = 1 + Math.min(this.stats.combo, 20) * 0.1;
-    this.stats.score += Math.round(100 * this.stats.phase * comboMult);
+    const gained = Math.round(100 * this.stats.phase * comboMult);
+    this.stats.score += gained;
+
+    const milestone = this.stats.combo > 0 && this.stats.combo % 5 === 0;
+    sfx.kill(this.stats.combo);
+    if (milestone) sfx.comboMilestone();
+
+    const pos = enemy.group.position.clone();
+    this._spawnKillBurst(pos, phaseTint(this.stats.phase), milestone);
+    this._spawnScorePopup(pos, `+${gained.toLocaleString()}`, milestone);
+    this._triggerShake(milestone ? 0.05 : 0.022, milestone ? 260 : 140);
+
     this._maybeAdvancePhase();
     this.scene.remove(enemy.group);
     this.enemies = this.enemies.filter((e) => e !== enemy);
     this._updateHud();
+  }
+
+  // ---------- kill "juice": particles, floating score, screen shake ----------
+
+  _spawnKillBurst(position, tintHex, big) {
+    const count = big ? 46 : 24;
+    const positions = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    const tintColor = new THREE.Color(tintHex);
+    for (let i = 0; i < count; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      const speed = 2.2 + Math.random() * (big ? 5.5 : 3.8);
+      velocities[i * 3] = Math.sin(phi) * Math.cos(theta) * speed;
+      velocities[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * speed;
+      velocities[i * 3 + 2] = Math.cos(phi) * speed;
+      const sparkle = Math.random() < 0.4;
+      colors[i * 3] = sparkle ? 1 : tintColor.r;
+      colors[i * 3 + 1] = sparkle ? 1 : tintColor.g;
+      colors[i * 3 + 2] = sparkle ? 1 : tintColor.b;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    const mat = new THREE.PointsMaterial({
+      size: big ? 0.32 : 0.2,
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const points = new THREE.Points(geo, mat);
+    points.position.copy(position);
+    this.scene.add(points);
+    this._bursts.push({ points, velocities, spawnAt: performance.now(), duration: big ? 750 : 480 });
+  }
+
+  _updateBursts(now) {
+    for (const b of [...this._bursts]) {
+      const elapsed = now - b.spawnAt;
+      const t = elapsed / b.duration;
+      if (t >= 1) {
+        this.scene.remove(b.points);
+        b.points.geometry.dispose();
+        b.points.material.dispose();
+        this._bursts = this._bursts.filter((x) => x !== b);
+        continue;
+      }
+      const elapsedSec = elapsed / 1000;
+      const pos = b.points.geometry.attributes.position;
+      for (let i = 0; i < b.velocities.length / 3; i++) {
+        pos.array[i * 3] = b.velocities[i * 3] * elapsedSec;
+        pos.array[i * 3 + 1] = b.velocities[i * 3 + 1] * elapsedSec - 1.6 * elapsedSec * elapsedSec;
+        pos.array[i * 3 + 2] = b.velocities[i * 3 + 2] * elapsedSec;
+      }
+      pos.needsUpdate = true;
+      b.points.material.opacity = 1 - t;
+    }
+  }
+
+  _spawnScorePopup(worldPos, text, big) {
+    const ndc = worldPos.clone().project(this.camera);
+    if (ndc.z > 1) return; // kill point ended up behind the camera — skip, rare
+    const x = (ndc.x * 0.5 + 0.5) * window.innerWidth;
+    const y = (1 - (ndc.y * 0.5 + 0.5)) * window.innerHeight;
+    const el = document.createElement("div");
+    el.className = big ? "score-popup big" : "score-popup";
+    el.textContent = text;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    this.dom.scorePopups.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("rise"));
+    setTimeout(() => el.remove(), 800);
+  }
+
+  _triggerShake(magnitude, durationMs) {
+    this._shakeUntil = performance.now() + durationMs;
+    this._shakeMagnitude = magnitude;
+    this._shakeDuration = durationMs;
   }
 
   _maybeAdvancePhase() {
@@ -510,8 +716,10 @@ export class Game {
     requestAnimationFrame(this._loop);
 
     try {
-      const dt = Math.min(64, now - this.lastTime);
+      const rawDt = now - this.lastTime;
+      const dt = Math.min(64, rawDt);
       this.lastTime = now;
+      this._trackPerf(rawDt);
 
       if (this._gyroActive) {
         const k = 1 - Math.exp(-GYRO_SMOOTHING * (dt / 1000));
@@ -520,14 +728,21 @@ export class Game {
       }
       this.camera.rotation.y = this.yaw;
       this.camera.rotation.x = this.pitch;
+      if (now < this._shakeUntil) {
+        const remaining = (this._shakeUntil - now) / this._shakeDuration;
+        const mag = this._shakeMagnitude * remaining;
+        this.camera.rotation.y += (Math.random() - 0.5) * mag;
+        this.camera.rotation.x += (Math.random() - 0.5) * mag;
+      }
 
       this._maybeSpawn(dt);
       this._updateEnemies(now);
       this._updateEnemyMarkers();
+      this._updateBursts(now);
       this._updateHud();
       this.space.update(now, dt);
 
-      this.renderer.render(this.scene, this.camera);
+      this.composer.render();
     } catch (err) {
       console.error("[Game] frame error (recovered):", err);
     }

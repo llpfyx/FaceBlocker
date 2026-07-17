@@ -81,6 +81,32 @@ html, body {
   z-index: 3;
   pointer-events: none;
 }
+#score-popups {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+.score-popup {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-weight: 900;
+  font-size: 22px;
+  color: var(--n3ds-accent);
+  text-shadow: 0 0 8px #000, 0 2px 4px #000c;
+  opacity: 1;
+  transition: transform 0.75s cubic-bezier(0.15, 0.7, 0.3, 1), opacity 0.75s ease-out;
+  white-space: nowrap;
+}
+.score-popup.big {
+  font-size: 32px;
+  color: #ff6b6b;
+}
+.score-popup.rise {
+  transform: translate(-50%, -50%) translateY(-70px) scale(1.15);
+  opacity: 0;
+}
+
 .enemy-marker {
   position: absolute;
   width: 0;

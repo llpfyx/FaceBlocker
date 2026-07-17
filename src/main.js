@@ -40,6 +40,7 @@ const dom = {
   combo: $("hud-combo"),
   hitFlash: $("hit-flash"),
   enemyMarkers: $("enemy-markers"),
+  scorePopups: $("score-popups"),
   mobileFireBtn: $("mobile-fire-btn"),
   orientationPrompt: $("orientation-permission"),
   gyroBtn: $("btn-enable-gyro"),

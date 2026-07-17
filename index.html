@@ -3,12 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-<title>FACE RAIDERS WEB</title>
+<title>FaceBlocker</title>
 <link rel="stylesheet" href="style.css" />
 <script type="importmap">
 {
   "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
   }
 }
 </script>
@@ -23,6 +24,7 @@
   </div>
 
   <div id="enemy-markers"></div>
+  <div id="score-popups"></div>
 
   <!-- HUD (bottom "touch screen" style bar, 3DS flavor) -->
   <div id="hud" class="hidden">
@@ -47,7 +49,7 @@
   <!-- ===== TITLE ===== -->
   <section id="screen-title" class="screen">
     <div class="panel top-panel">
-      <h1 class="title-3ds">FACE<br/>RAIDERS<span class="web-suffix">WEB</span></h1>
+      <h1 class="title-3ds">FACE<br/>BLOCKER<span class="web-suffix">WEB</span></h1>
       <p class="subtitle">顔をアップロード or 撮影して、襲いくる自分の顔を撃退せよ</p>
     </div>
     <div class="panel bottom-panel">
