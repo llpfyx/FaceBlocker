@@ -219,7 +219,7 @@ export class Game {
     // euler.y wraps at +-PI; unwrap it into a continuous angle so a full
     // physical spin (or several) tracks smoothly instead of snapping back
     // partway through — this is the actual fix for "not 360deg-capable".
-    const rawYawRad = -_gyroOutEuler.y;
+    const rawYawRad = _gyroOutEuler.y;
     if (this._gyroLastRawYawRad != null) {
       let delta = rawYawRad - this._gyroLastRawYawRad;
       while (delta > Math.PI) delta -= Math.PI * 2;
