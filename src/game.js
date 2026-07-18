@@ -17,6 +17,17 @@ function isTouchDevice() {
   return "ontouchstart" in window || navigator.maxTouchPoints > 0;
 }
 
+// Stage 1: enemies only approach from directly in front of wherever the
+// player is currently looking (easy/tutorial framing). Stage 2 widens the
+// cone. Stage 3+ opens up to the full surrounding sphere, matching when
+// evasive side-to-side movement also kicks in — the difficulty ramps up
+// on two fronts at once.
+function spawnYawHalfRange(phase) {
+  if (phase <= 1) return THREE.MathUtils.degToRad(30);
+  if (phase === 2) return THREE.MathUtils.degToRad(90);
+  return Math.PI;
+}
+
 function phaseTint(phase) {
   if (phase <= 2) return 0xffffff;
   if (phase <= 4) return 0xffc4c4;
@@ -372,9 +383,11 @@ export class Game {
 
   _spawnEnemy(ps) {
     if (!this.faceTexture) return;
-    const yaw = Math.random() * Math.PI * 2;
+    const halfRange = spawnYawHalfRange(this.stats.phase);
+    const yaw = this.yaw + (Math.random() * 2 - 1) * halfRange;
     const pitch = THREE.MathUtils.degToRad(-15 + Math.random() * 55);
     const startRadius = 8 + Math.random() * 5;
+    const evasive = this.stats.phase >= 3;
 
     const material = new THREE.SpriteMaterial({
       map: this.faceTexture,
@@ -415,6 +428,7 @@ export class Game {
       attackDamage: ps.attackDamage,
       yaw,
       pitch,
+      evasive,
       startRadius,
       endRadius: 2.8,
       spawnAt: performance.now(),
@@ -635,10 +649,13 @@ export class Game {
       const radius = THREE.MathUtils.lerp(enemy.startRadius, enemy.endRadius, t);
       const bob = Math.sin(now * 0.003 + enemy.seed) * 0.03;
       const pitch = enemy.pitch + bob;
+      // From stage 3 on, enemies periodically drift side-to-side (and, combined
+      // with the vertical bob above, diagonally) to make them harder to track.
+      const yaw = enemy.evasive ? enemy.yaw + Math.sin(now * 0.0021 + enemy.seed * 1.6) * 0.09 : enemy.yaw;
 
-      const x = radius * Math.cos(pitch) * Math.sin(enemy.yaw);
+      const x = radius * Math.cos(pitch) * Math.sin(yaw);
       const y = radius * Math.sin(pitch);
-      const z = -radius * Math.cos(pitch) * Math.cos(enemy.yaw);
+      const z = -radius * Math.cos(pitch) * Math.cos(yaw);
       enemy.group.position.set(x, y, z);
       enemy.group.lookAt(this.camera.position);
 
