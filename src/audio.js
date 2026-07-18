@@ -228,7 +228,7 @@ export const sfx = {
 // vibe — built entirely from oscillators via a standard lookahead scheduler.
 // ---------------------------------------------------------------------------
 
-const BPM = 152;
+const BPM = 172;
 const BEAT = 60 / BPM;
 
 // i - VI - III - VII, then i - VI - iv - V (D minor "epic trailer" progression)
@@ -328,49 +328,77 @@ class BattleMusic {
 
   _scheduleBar(chordIdx, t) {
     const chord = CHORDS[chordIdx];
-    this._playPad(chord, t);
-    this._playBass(chord.bass, t);
+    this._playPadStabs(chord, t);
+    this._playBassPulse(chord.bass, t);
+    for (let i = 0; i < 8; i++) this._playHat(t + i * (BEAT / 2), i % 2 === 0 ? 0.1 : 0.05);
     this._playTimp(t);
     this._playTimp(t + BEAT * 2);
-    this._playSnare(t + BEAT * 1.5);
-    this._playSnare(t + BEAT * 3.5);
+    this._playSnare(t + BEAT * 1);
+    this._playSnare(t + BEAT * 3);
     if (chordIdx % 2 === 0) this._playFanfare(chord, t);
   }
 
-  _playPad(chord, t) {
+  // Rhythmic chord stabs on every beat (instead of one long sustained pad
+  // per bar) — this is what actually makes the track *feel* fast, since a
+  // sustained pad reads as slow no matter the BPM number underneath it.
+  _playPadStabs(chord, barTime) {
     const c = getCtx();
-    const g = c.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.5, t + 0.18);
-    g.gain.setValueAtTime(0.5, t + BEAT * 3.2);
-    g.gain.linearRampToValueAtTime(0, t + BEAT * 4);
-    const filter = c.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value = 1400;
-    g.connect(filter).connect(this._gain);
-    for (const m of chord.pad) {
-      for (const type of ["sawtooth", "square"]) {
-        const osc = c.createOscillator();
-        osc.type = type;
-        osc.frequency.value = midiFreq(m) * (type === "square" ? 1 : 1.003);
-        osc.connect(g);
-        osc.start(t);
-        osc.stop(t + BEAT * 4 + 0.05);
+    for (let beat = 0; beat < 4; beat++) {
+      const t = barTime + beat * BEAT;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.4, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, t + BEAT * 0.85);
+      const filter = c.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 1500;
+      g.connect(filter).connect(this._gain);
+      for (const m of chord.pad) {
+        for (const type of ["sawtooth", "square"]) {
+          const osc = c.createOscillator();
+          osc.type = type;
+          osc.frequency.value = midiFreq(m) * (type === "square" ? 1 : 1.003);
+          osc.connect(g);
+          osc.start(t);
+          osc.stop(t + BEAT * 0.9);
+        }
       }
     }
   }
 
-  _playBass(m, t) {
+  // Driving 8th-note bass pulse (root-root-fifth-root pattern) instead of one
+  // held note per bar.
+  _playBassPulse(rootMidi, barTime) {
     const c = getCtx();
-    const osc = c.createOscillator();
-    osc.type = "triangle";
-    osc.frequency.value = midiFreq(m);
+    const pattern = [0, 0, 7, 0, 0, 0, 7, 5];
+    for (let i = 0; i < 8; i++) {
+      const t = barTime + i * (BEAT / 2);
+      const osc = c.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.value = midiFreq(rootMidi + pattern[i]);
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.32, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + BEAT * 0.42);
+      osc.connect(g).connect(this._gain);
+      osc.start(t);
+      osc.stop(t + BEAT * 0.45);
+    }
+  }
+
+  // Fast closed-hihat-style tick for a driving, propulsive rhythm bed.
+  _playHat(t, gain) {
+    const c = getCtx();
+    const src = c.createBufferSource();
+    src.buffer = getNoiseBuffer(c);
+    const filter = c.createBiquadFilter();
+    filter.type = "highpass";
+    filter.frequency.value = 7000;
     const g = c.createGain();
-    g.gain.setValueAtTime(0.35, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + BEAT * 4);
-    osc.connect(g).connect(this._gain);
-    osc.start(t);
-    osc.stop(t + BEAT * 4 + 0.05);
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.045);
+    src.connect(filter).connect(g).connect(this._gain);
+    src.start(t);
+    src.stop(t + 0.05);
   }
 
   _playFanfare(chord, t) {
