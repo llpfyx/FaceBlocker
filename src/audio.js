@@ -71,6 +71,37 @@ function sparkle({ delay = 0, gain = 0.12, duration = 0.09 } = {}) {
   src.stop(t + duration + 0.02);
 }
 
+// low thump + broadband crack — the "boom" half of an explosion, layered
+// under the bright chime for a satisfying punch instead of just a sparkle.
+function explosionBoom({ delay = 0, gain = 0.3 } = {}) {
+  const c = getCtx();
+  const t = c.currentTime + delay;
+
+  const osc = c.createOscillator();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(160, t);
+  osc.frequency.exponentialRampToValueAtTime(32, t + 0.32);
+  const oscGain = c.createGain();
+  oscGain.gain.setValueAtTime(gain, t);
+  oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.36);
+  osc.connect(oscGain).connect(c.destination);
+  osc.start(t);
+  osc.stop(t + 0.38);
+
+  const noise = c.createBufferSource();
+  noise.buffer = getNoiseBuffer(c);
+  const filter = c.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.setValueAtTime(4200, t);
+  filter.frequency.exponentialRampToValueAtTime(250, t + 0.28);
+  const noiseGain = c.createGain();
+  noiseGain.gain.setValueAtTime(gain * 0.75, t);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  noise.connect(filter).connect(noiseGain).connect(c.destination);
+  noise.start(t);
+  noise.stop(t + 0.32);
+}
+
 export const sfx = {
   unlock() {
     getCtx();
@@ -88,6 +119,7 @@ export const sfx = {
   // triumphant instead of identical every time — a small but effective
   // "dopamine ladder" trick.
   kill(combo = 0) {
+    explosionBoom({ gain: 0.3 });
     const comboStep = Math.min(combo, 10);
     const base = 1046.5 * Math.pow(2, comboStep / 24); // C6, rising up to ~a fifth over a streak
     const ratios = [1, 1.26, 1.5, 2];
@@ -99,6 +131,7 @@ export const sfx = {
   },
   // extra flourish every few kills in a row — bigger ascending run + shimmer
   comboMilestone() {
+    explosionBoom({ gain: 0.36 });
     const notes = [1, 1.26, 1.5, 1.78, 2, 2.52];
     const base = 784; // G5
     notes.forEach((r, i) => {
@@ -126,7 +159,7 @@ export const sfx = {
 // vibe — built entirely from oscillators via a standard lookahead scheduler.
 // ---------------------------------------------------------------------------
 
-const BPM = 108;
+const BPM = 152;
 const BEAT = 60 / BPM;
 
 // i - VI - III - VII, then i - VI - iv - V (D minor "epic trailer" progression)

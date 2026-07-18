@@ -39,6 +39,30 @@ function cssColor(hex) {
   return `#${hex.toString(16).padStart(6, "0")}`;
 }
 
+// Soft radial ring (transparent center + edges, bright band in between) used
+// as an expanding shockwave sprite on kill, for an actual "explosion" read
+// instead of just scattering particles.
+function makeShockwaveTexture() {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const cx = size / 2;
+  const cy = size / 2;
+  const grad = ctx.createRadialGradient(cx, cy, size * 0.26, cx, cy, size * 0.5);
+  grad.addColorStop(0, "rgba(255,255,255,0)");
+  grad.addColorStop(0.55, "rgba(255,255,255,0.95)");
+  grad.addColorStop(0.78, "rgba(255,255,255,0.3)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 // ---------- device-orientation -> quaternion (full 360deg, any device tilt) ----------
 // Same math as three.js's own DeviceOrientationControls reference implementation:
 // naively treating `alpha` as yaw breaks down once the phone is tilted away from flat
@@ -49,7 +73,7 @@ const GYRO_Q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // 
 const _gyroEuler = new THREE.Euler();
 const _gyroQuat = new THREE.Quaternion();
 const _gyroScreenQuat = new THREE.Quaternion();
-const _gyroRelQuat = new THREE.Quaternion();
+const _gyroDeltaQuat = new THREE.Quaternion();
 const _gyroOutEuler = new THREE.Euler();
 
 function deviceOrientationToQuaternion(alpha, beta, gamma, screenAngleDeg, target) {
@@ -123,6 +147,8 @@ export class Game {
     this.helmetTextures = createHelmetTextures();
     this._markerEls = new Map();
     this._bursts = [];
+    this._shockwaveTexture = makeShockwaveTexture();
+    this._shockwaves = [];
     this._shakeUntil = 0;
     this._shakeMagnitude = 0;
     this._shakeDuration = 1;
@@ -136,11 +162,11 @@ export class Game {
 
     this._touchLook = null; // active look-drag touch id
     this._gyroActive = false;
-    this._gyroBaseQuatInverse = null;
+    this._gyroPrevQuat = null;
     this._gyroTargetYaw = 0;
     this._gyroTargetPitch = 0;
     this._gyroUnwrappedYaw = 0;
-    this._gyroLastRawYawRad = null;
+    this._gyroAccumPitch = 0;
     this._pointerLocked = false;
 
     this._onResize = this._onResize.bind(this);
@@ -206,43 +232,51 @@ export class Game {
       }
       window.addEventListener("deviceorientation", this._onDeviceOrientation);
       this._gyroActive = true;
-      this._gyroBaseQuatInverse = null;
+      this._gyroPrevQuat = null;
       this._gyroUnwrappedYaw = 0;
-      this._gyroLastRawYawRad = null;
+      this._gyroAccumPitch = 0;
       this.dom.orientationPrompt.classList.add("hidden");
     } catch (e) {
       // gyro unavailable — fall back silently to touch-drag look
     }
   }
 
+  // Tracks orientation via the *incremental* rotation between consecutive
+  // sensor readings (not a single large rotation relative to a fixed
+  // calibration point). Decomposing a big relative rotation into Euler
+  // angles is exactly what breaks down once the player has spun all the
+  // way around — the decomposition can land on a different, equally valid
+  // but "wrong-feeling" (yaw, pitch) combination. A frame-to-frame delta is
+  // always a small rotation, which Euler decomposition handles reliably, so
+  // accumulating many small deltas stays correct no matter how many times
+  // the player turns around or which direction they move.
   _onDeviceOrientation(e) {
     if (e.alpha == null || e.beta == null || e.gamma == null) return;
     const screenAngle = currentScreenAngle();
     deviceOrientationToQuaternion(e.alpha, e.beta, e.gamma, screenAngle, _gyroQuat);
 
-    if (!this._gyroBaseQuatInverse) {
-      this._gyroBaseQuatInverse = _gyroQuat.clone().invert();
+    if (!this._gyroPrevQuat) {
+      this._gyroPrevQuat = _gyroQuat.clone();
       return;
     }
-    _gyroRelQuat.copy(this._gyroBaseQuatInverse).multiply(_gyroQuat);
-    _gyroOutEuler.setFromQuaternion(_gyroRelQuat, "YXZ");
 
-    // euler.y wraps at +-PI; unwrap it into a continuous angle so a full
-    // physical spin (or several) tracks smoothly instead of snapping back
-    // partway through — this is the actual fix for "not 360deg-capable".
-    const rawYawRad = _gyroOutEuler.y;
-    if (this._gyroLastRawYawRad != null) {
-      let delta = rawYawRad - this._gyroLastRawYawRad;
-      while (delta > Math.PI) delta -= Math.PI * 2;
-      while (delta < -Math.PI) delta += Math.PI * 2;
-      this._gyroUnwrappedYaw += delta;
-    } else {
-      this._gyroUnwrappedYaw = rawYawRad;
-    }
-    this._gyroLastRawYawRad = rawYawRad;
+    _gyroDeltaQuat.copy(this._gyroPrevQuat).invert().multiply(_gyroQuat);
+    _gyroOutEuler.setFromQuaternion(_gyroDeltaQuat, "YXZ");
+    this._gyroPrevQuat.copy(_gyroQuat);
+
+    this._gyroUnwrappedYaw += _gyroOutEuler.y;
+    // clamp the accumulator itself (not just the derived target) so looking
+    // past the pitch limit doesn't make the view "stick" once you look back
+    // — otherwise the accumulated value would have to unwind the overshoot
+    // first.
+    this._gyroAccumPitch = THREE.MathUtils.clamp(
+      this._gyroAccumPitch + _gyroOutEuler.x,
+      PITCH_MIN / GYRO_SENS,
+      PITCH_MAX / GYRO_SENS
+    );
 
     this._gyroTargetYaw = this._gyroUnwrappedYaw * GYRO_SENS;
-    this._gyroTargetPitch = THREE.MathUtils.clamp(_gyroOutEuler.x * GYRO_SENS, PITCH_MIN, PITCH_MAX);
+    this._gyroTargetPitch = this._gyroAccumPitch * GYRO_SENS;
   }
 
   _onCanvasDown() {
@@ -352,6 +386,12 @@ export class Game {
       b.points.material.dispose();
     }
     this._bursts = [];
+    for (const s of this._shockwaves) {
+      this.scene.remove(s.sprite);
+      s.sprite.material.dispose();
+    }
+    this._shockwaves = [];
+    this._shockwaveTexture.dispose();
     this.dom.scorePopups.innerHTML = "";
     for (const t of this.helmetTextures) t.dispose();
     this.space.dispose();
@@ -488,6 +528,7 @@ export class Game {
       this._killEnemy(enemy);
     } else {
       sfx.hit();
+      this._spawnHitSpark(enemy.group.position.clone(), phaseTint(this.stats.phase));
       this._redrawHpBar(enemy);
     }
   }
@@ -506,8 +547,9 @@ export class Game {
 
     const pos = enemy.group.position.clone();
     this._spawnKillBurst(pos, phaseTint(this.stats.phase), milestone);
+    this._spawnShockwave(pos, phaseTint(this.stats.phase), milestone);
     this._spawnScorePopup(pos, `+${gained.toLocaleString()}`, milestone);
-    this._triggerShake(milestone ? 0.05 : 0.022, milestone ? 260 : 140);
+    this._triggerShake(milestone ? 0.075 : 0.04, milestone ? 280 : 170);
 
     this._maybeAdvancePhase();
     this.scene.remove(enemy.group);
@@ -515,10 +557,10 @@ export class Game {
     this._updateHud();
   }
 
-  // ---------- kill "juice": particles, floating score, screen shake ----------
+  // ---------- kill "juice": explosion particles/shockwave, hit sparks, floating score, screen shake ----------
 
   _spawnKillBurst(position, tintHex, big) {
-    const count = big ? 46 : 24;
+    const count = big ? 70 : 40;
     const positions = new Float32Array(count * 3);
     const velocities = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
@@ -526,20 +568,29 @@ export class Game {
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(Math.random() * 2 - 1);
-      const speed = 2.2 + Math.random() * (big ? 5.5 : 3.8);
+      const speed = 3 + Math.random() * (big ? 7.5 : 5.5);
       velocities[i * 3] = Math.sin(phi) * Math.cos(theta) * speed;
       velocities[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * speed;
       velocities[i * 3 + 2] = Math.cos(phi) * speed;
-      const sparkle = Math.random() < 0.4;
-      colors[i * 3] = sparkle ? 1 : tintColor.r;
-      colors[i * 3 + 1] = sparkle ? 1 : tintColor.g;
-      colors[i * 3 + 2] = sparkle ? 1 : tintColor.b;
+      // white-hot core fading to the phase-tint embers, like a real explosion
+      const hot = Math.random();
+      if (hot < 0.35) {
+        colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = 1;
+      } else if (hot < 0.7) {
+        colors[i * 3] = 1;
+        colors[i * 3 + 1] = 0.7 + Math.random() * 0.3;
+        colors[i * 3 + 2] = 0.25;
+      } else {
+        colors[i * 3] = tintColor.r;
+        colors[i * 3 + 1] = tintColor.g;
+        colors[i * 3 + 2] = tintColor.b;
+      }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     const mat = new THREE.PointsMaterial({
-      size: big ? 0.32 : 0.2,
+      size: big ? 0.4 : 0.26,
       vertexColors: true,
       transparent: true,
       opacity: 1,
@@ -549,7 +600,83 @@ export class Game {
     const points = new THREE.Points(geo, mat);
     points.position.copy(position);
     this.scene.add(points);
-    this._bursts.push({ points, velocities, spawnAt: performance.now(), duration: big ? 750 : 480 });
+    this._bursts.push({ points, velocities, spawnAt: performance.now(), duration: big ? 800 : 520 });
+  }
+
+  // A handful of quick sparks on a non-lethal hit — much smaller than a kill
+  // explosion, just enough impact feedback that shots feel like they connect.
+  _spawnHitSpark(position, tintHex) {
+    const count = 8;
+    const positions = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    const tintColor = new THREE.Color(tintHex);
+    for (let i = 0; i < count; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(Math.random() * 2 - 1);
+      const speed = 1.2 + Math.random() * 1.8;
+      velocities[i * 3] = Math.sin(phi) * Math.cos(theta) * speed;
+      velocities[i * 3 + 1] = Math.sin(phi) * Math.sin(theta) * speed;
+      velocities[i * 3 + 2] = Math.cos(phi) * speed;
+      const white = Math.random() < 0.6;
+      colors[i * 3] = white ? 1 : tintColor.r;
+      colors[i * 3 + 1] = white ? 1 : tintColor.g;
+      colors[i * 3 + 2] = white ? 1 : tintColor.b;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    const mat = new THREE.PointsMaterial({
+      size: 0.14,
+      vertexColors: true,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const points = new THREE.Points(geo, mat);
+    points.position.copy(position);
+    this.scene.add(points);
+    this._bursts.push({ points, velocities, spawnAt: performance.now(), duration: 200 });
+  }
+
+  _spawnShockwave(position, tintHex, big) {
+    const mat = new THREE.SpriteMaterial({
+      map: this._shockwaveTexture,
+      color: tintHex,
+      transparent: true,
+      opacity: 1,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      depthTest: false,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.copy(position);
+    sprite.scale.set(0.25, 0.25, 1);
+    sprite.renderOrder = 4;
+    this.scene.add(sprite);
+    this._shockwaves.push({
+      sprite,
+      spawnAt: performance.now(),
+      duration: big ? 520 : 400,
+      maxScale: big ? 6.5 : 4.5,
+    });
+  }
+
+  _updateShockwaves(now) {
+    for (const s of [...this._shockwaves]) {
+      const t = (now - s.spawnAt) / s.duration;
+      if (t >= 1) {
+        this.scene.remove(s.sprite);
+        s.sprite.material.dispose();
+        this._shockwaves = this._shockwaves.filter((x) => x !== s);
+        continue;
+      }
+      const eased = 1 - Math.pow(1 - t, 3);
+      const scale = THREE.MathUtils.lerp(0.25, s.maxScale, eased);
+      s.sprite.scale.set(scale, scale, 1);
+      s.sprite.material.opacity = 1 - t;
+    }
   }
 
   _updateBursts(now) {
@@ -771,6 +898,7 @@ export class Game {
       this._updateEnemies(now);
       this._updateEnemyMarkers();
       this._updateBursts(now);
+      this._updateShockwaves(now);
       this._updateHud();
       this.space.update(now, dt);
 
