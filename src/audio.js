@@ -1,11 +1,57 @@
-// Synthesized SFX + an original looping battle theme, all via WebAudio.
-// No audio asset files — everything here is generated at runtime.
+// Synthesized SFX + an original looping battle theme, layered with a
+// handful of real recorded samples (CC0, Kenney's Sci-Fi Sounds pack —
+// see assets/audio/LICENSE.txt) for extra punch. The synthesized layer
+// always plays even if the sample files fail to load, so this degrades
+// gracefully offline / on a slow connection.
 
 let ctx = null;
 function getCtx() {
   if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
   if (ctx.state === "suspended") ctx.resume();
   return ctx;
+}
+
+const SAMPLE_FILES = {
+  laser: ["assets/audio/laserSmall_000.ogg", "assets/audio/laserSmall_001.ogg", "assets/audio/laserSmall_002.ogg"],
+  explosion: ["assets/audio/explosionCrunch_000.ogg", "assets/audio/explosionCrunch_001.ogg", "assets/audio/explosionCrunch_002.ogg"],
+  lowBoom: ["assets/audio/lowFrequency_explosion_000.ogg"],
+  impact: ["assets/audio/impactMetal_000.ogg", "assets/audio/impactMetal_001.ogg"],
+};
+const sampleBuffers = {};
+let samplesLoadPromise = null;
+
+function loadSamples() {
+  if (samplesLoadPromise) return samplesLoadPromise;
+  const c = getCtx();
+  samplesLoadPromise = Promise.all(
+    Object.entries(SAMPLE_FILES).map(async ([key, files]) => {
+      const buffers = await Promise.all(
+        files.map(async (url) => {
+          const res = await fetch(url);
+          const arr = await res.arrayBuffer();
+          return c.decodeAudioData(arr);
+        })
+      );
+      sampleBuffers[key] = buffers;
+    })
+  ).catch((e) => {
+    console.warn("[audio] sample pack failed to load, continuing with synth-only SFX:", e);
+  });
+  return samplesLoadPromise;
+}
+
+function playSample(key, { gain = 0.5, rateJitter = 0.06, delay = 0 } = {}) {
+  const buffers = sampleBuffers[key];
+  if (!buffers || buffers.length === 0) return; // not loaded (yet) — synth layer already covers this
+  const c = getCtx();
+  const buffer = buffers[Math.floor(Math.random() * buffers.length)];
+  const src = c.createBufferSource();
+  src.buffer = buffer;
+  src.playbackRate.value = 1 + (Math.random() * 2 - 1) * rateJitter;
+  const g = c.createGain();
+  g.gain.value = gain;
+  src.connect(g).connect(c.destination);
+  src.start(c.currentTime + delay);
 }
 
 let noiseBuffer = null;
@@ -105,14 +151,17 @@ function explosionBoom({ delay = 0, gain = 0.3 } = {}) {
 export const sfx = {
   unlock() {
     getCtx();
+    loadSamples(); // kick off in the background, well before it's needed
   },
   shoot() {
     tone({ freq: 900, slideTo: 300, duration: 0.08, type: "square", gain: 0.08 });
+    playSample("laser", { gain: 0.3 });
   },
   // quick bright "tink" — enemy took a hit but survived
   hit() {
     blip({ freq: 1050, duration: 0.07, gain: 0.16 });
     blip({ freq: 2100, duration: 0.05, gain: 0.06 });
+    playSample("impact", { gain: 0.22 });
   },
   // satisfying rising chime + sparkle burst — Block-Blast-style clear feel.
   // Pitch climbs a little with combo (capped) so a streak sounds increasingly
@@ -120,6 +169,8 @@ export const sfx = {
   // "dopamine ladder" trick.
   kill(combo = 0) {
     explosionBoom({ gain: 0.3 });
+    playSample("explosion", { gain: 0.55 });
+    playSample("lowBoom", { gain: 0.4, delay: 0.02 });
     const comboStep = Math.min(combo, 10);
     const base = 1046.5 * Math.pow(2, comboStep / 24); // C6, rising up to ~a fifth over a streak
     const ratios = [1, 1.26, 1.5, 2];
@@ -132,6 +183,8 @@ export const sfx = {
   // extra flourish every few kills in a row — bigger ascending run + shimmer
   comboMilestone() {
     explosionBoom({ gain: 0.36 });
+    playSample("explosion", { gain: 0.6 });
+    playSample("lowBoom", { gain: 0.5, delay: 0.02 });
     const notes = [1, 1.26, 1.5, 1.78, 2, 2.52];
     const base = 784; // G5
     notes.forEach((r, i) => {

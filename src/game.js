@@ -2,9 +2,10 @@ import * as THREE from "three";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { sfx, battleMusic } from "./audio.js";
 import { SpaceBackdrop } from "./space.js";
-import { createHelmetTextures, helmetTierForPhase } from "./helmets.js";
+import { createHelmetTextures, helmetTierForPhase, loadTopHelmetModel } from "./helmets.js";
 
 const PITCH_MIN = THREE.MathUtils.degToRad(-70);
 const PITCH_MAX = THREE.MathUtils.degToRad(80);
@@ -145,6 +146,14 @@ export class Game {
     this.enemies = [];
     this.faceTexture = null;
     this.helmetTextures = createHelmetTextures();
+    this.topHelmetModel = null;
+    loadTopHelmetModel()
+      .then((model) => {
+        this.topHelmetModel = model;
+      })
+      .catch((err) => {
+        console.warn("[Game] tier-3 helmet model failed to load, falling back to the flat sprite:", err);
+      });
     this._markerEls = new Map();
     this._bursts = [];
     this._shockwaveTexture = makeShockwaveTexture();
@@ -394,6 +403,20 @@ export class Game {
     this._shockwaveTexture.dispose();
     this.dom.scorePopups.innerHTML = "";
     for (const t of this.helmetTextures) t.dispose();
+    if (this.topHelmetModel) {
+      this.topHelmetModel.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            for (const key of ["map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap", "aoMap"]) {
+              if (m[key]) m[key].dispose();
+            }
+            m.dispose();
+          }
+        }
+      });
+    }
     this.space.dispose();
     this.composer.dispose();
     this.renderer.dispose();
@@ -440,12 +463,20 @@ export class Game {
     const group = new THREE.Group();
     group.add(sprite);
 
-    const helmetTex = this.helmetTextures[helmetTierForPhase(this.stats.phase)];
-    const helmetSprite = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: helmetTex, transparent: true, depthTest: false })
-    );
-    helmetSprite.scale.set(0.01, 0.01, 1);
-    helmetSprite.renderOrder = 2; // always paint on top of the face sprite
+    const helmetTier = helmetTierForPhase(this.stats.phase);
+    const useTopModel = helmetTier === 3 && !!this.topHelmetModel;
+    let helmetSprite;
+    let helmetBaseScale = 1;
+    if (useTopModel) {
+      helmetSprite = this.topHelmetModel.clone(true);
+      helmetBaseScale = helmetSprite.scale.x; // preserve the baked-in model scale
+    } else {
+      helmetSprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: this.helmetTextures[helmetTier], transparent: true, depthTest: false })
+      );
+      helmetSprite.renderOrder = 2; // always paint on top of the face sprite
+    }
+    helmetSprite.scale.set(0.01, 0.01, 0.01);
     group.add(helmetSprite);
 
     let hpBar = null;
@@ -462,6 +493,8 @@ export class Game {
       group,
       sprite,
       helmetSprite,
+      helmetIs3D: useTopModel,
+      helmetBaseScale,
       hpBar,
       hp: ps.maxHp,
       maxHp: ps.maxHp,
@@ -790,8 +823,15 @@ export class Game {
       const approachScale = THREE.MathUtils.lerp(1.0, 2.2, t);
       const scale = spawnScale * approachScale * hitPulse;
       enemy.sprite.scale.set(scale, scale, 1);
-      enemy.helmetSprite.scale.set(scale * 1.08, scale * 1.08, 1);
-      enemy.helmetSprite.position.set(0, scale * 0.2, 0.001);
+      if (enemy.helmetIs3D) {
+        // the real model's own baked-in scale (from loadTopHelmetModel) is
+        // preserved as a multiplier — only the grow-in animation is added here.
+        enemy.helmetSprite.scale.setScalar(scale * enemy.helmetBaseScale);
+        enemy.helmetSprite.position.set(0, scale * 0.42, scale * 0.05);
+      } else {
+        enemy.helmetSprite.scale.set(scale * 1.08, scale * 1.08, 1);
+        enemy.helmetSprite.position.set(0, scale * 0.2, 0.001);
+      }
       if (enemy.hpBar) enemy.hpBar.sprite.position.set(0, 0.75 * scale, 0);
     }
   }

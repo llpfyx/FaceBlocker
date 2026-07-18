@@ -1,0 +1,9 @@
+Source: Kenney's "Sci-Fi Sounds" pack (kenney.nl/assets/sci-fi-sounds)
+Files included here: laserSmall_000/001/002.ogg, explosionCrunch_000/001/002.ogg,
+lowFrequency_explosion_000.ogg, impactMetal_000/001.ogg
+
+License: Creative Commons Zero (CC0) 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Free to use in personal, educational, and commercial projects.
+Attribution is not required, but credit to Kenney (www.kenney.nl) is appreciated.

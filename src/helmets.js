@@ -1,12 +1,15 @@
-// Procedurally-drawn helmet overlays for the enemy "target". No external
-// image-generation tool is available in this environment, so each helmet is
-// hand-drawn with Canvas 2D paths/gradients instead of a generated bitmap.
-// Helmets get more elaborate as the phase tier rises:
-//   tier 0: simple yellow hard-hat
-//   tier 1: baseball helmet
-//   tier 2: horned (viking-style) helmet
-//   tier 3: samurai kabuto
+// Procedurally-drawn helmet overlays for the enemy "target", plus a real
+// glTF-modeled helmet for the top tier. No image-generation tool is
+// available in this environment, so tiers 0-2 are hand-drawn with Canvas 2D
+// paths/gradients instead of generated bitmaps. Helmets get more elaborate
+// as the phase tier rises:
+//   tier 0: simple yellow hard-hat (procedural)
+//   tier 1: baseball helmet (procedural)
+//   tier 2: horned (viking-style) helmet (procedural)
+//   tier 3: "DamagedHelmet" — a real 3D model (CC BY 4.0, Khronos Group's
+//           official glTF sample assets — see assets/models/LICENSE.txt)
 import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const SIZE = 256;
 const CX = SIZE / 2;
@@ -178,4 +181,28 @@ export function helmetTierForPhase(phase) {
   if (phase <= 4) return 1;
   if (phase <= 6) return 2;
   return 3;
+}
+
+const TOP_HELMET_URL = "assets/models/DamagedHelmet.glb";
+
+// Loads the real tier-3 helmet model once. Scale/rotation/position are
+// baked into the returned group (tuned empirically against the flat face
+// sprite it sits on top of) so callers can just clone() it as-is.
+export function loadTopHelmetModel() {
+  return new Promise((resolve, reject) => {
+    new GLTFLoader().load(
+      TOP_HELMET_URL,
+      (gltf) => {
+        const model = gltf.scene;
+        // Native bounding box is ~1.89 x 1.80 x 2.0 units and it already
+        // faces the camera at the identity rotation — measured empirically
+        // via THREE.Box3 against a live clone rather than guessed. Scaled
+        // down so it reads as a helmet worn on the head, not the whole head.
+        model.scale.setScalar(0.35);
+        resolve(model);
+      },
+      undefined,
+      (err) => reject(err)
+    );
+  });
 }

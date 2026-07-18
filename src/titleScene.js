@@ -4,7 +4,7 @@
 // give the title screen some real motion instead of a flat static image.
 import * as THREE from "three";
 import { makeStarfield } from "./space.js";
-import { createHelmetTextures } from "./helmets.js";
+import { createHelmetTextures, loadTopHelmetModel } from "./helmets.js";
 
 function makeSilhouetteTexture() {
   const size = 256;
@@ -69,13 +69,30 @@ export class TitleScene {
     faceSprite.scale.set(1.3, 1.3, 1);
     this.targetGroup.add(faceSprite);
 
-    const helmetSprite = new THREE.Sprite(
+    this.helmetSprite = new THREE.Sprite(
       new THREE.SpriteMaterial({ map: this.helmetTextures[3], transparent: true, depthTest: false })
     );
-    helmetSprite.scale.set(1.42, 1.42, 1);
-    helmetSprite.position.set(0, 0.28, 0.01);
-    helmetSprite.renderOrder = 2;
-    this.targetGroup.add(helmetSprite);
+    this.helmetSprite.scale.set(1.42, 1.42, 1);
+    this.helmetSprite.position.set(0, 0.28, 0.01);
+    this.helmetSprite.renderOrder = 2;
+    this.targetGroup.add(this.helmetSprite);
+
+    // Upgrade to the real 3D helmet model once it's loaded, swapping out the
+    // flat placeholder sprite so the title screen doesn't wait on the network.
+    this.topHelmetModel = null;
+    loadTopHelmetModel()
+      .then((model) => {
+        if (!this._running) return; // screen was already left
+        this.topHelmetModel = model;
+        model.scale.setScalar(0.455);
+        model.position.set(0, 0.546, 0.06);
+        this.targetGroup.remove(this.helmetSprite);
+        this.helmetSprite.material.dispose();
+        this.targetGroup.add(model);
+      })
+      .catch(() => {
+        // flat sprite placeholder stays — no hard dependency on the model
+      });
 
     this._running = true;
     this._loop = this._loop.bind(this);
@@ -110,9 +127,18 @@ export class TitleScene {
     this.stars.material.dispose();
     this.silhouetteTex.dispose();
     for (const t of this.helmetTextures) t.dispose();
-    for (const child of this.targetGroup.children) {
-      child.material.dispose();
-    }
+    this.targetGroup.traverse((obj) => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of mats) {
+          for (const key of ["map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap", "aoMap"]) {
+            if (m[key]) m[key].dispose();
+          }
+          m.dispose();
+        }
+      }
+    });
     this.renderer.dispose();
   }
 }

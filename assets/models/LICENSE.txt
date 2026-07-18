@@ -1,0 +1,10 @@
+File: DamagedHelmet.glb
+Source: Khronos Group's official glTF-Sample-Assets repository
+https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/DamagedHelmet
+
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+Original model by ctxwing (2018).
+
+Attribution required: "DamagedHelmet" by ctxwing, CC BY 4.0, via Khronos Group
+glTF-Sample-Assets. Used in FaceBlocker as the tier-4 (final phase) enemy helmet.
