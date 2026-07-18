@@ -237,11 +237,11 @@ html, body {
 .subtitle { opacity: .75; font-size: 14px; margin: 0; }
 
 /* ---------- title screen: premium look, floating 3D scene shows through ---------- */
-#screen-title {
+.premium-screen {
   background: transparent;
   justify-content: space-between;
 }
-#screen-title .panel {
+.premium-screen .panel {
   background: linear-gradient(160deg, rgba(27, 32, 48, 0.72), rgba(8, 10, 20, 0.85));
   border: 1px solid rgba(255, 210, 63, 0.4);
   box-shadow:
@@ -250,7 +250,7 @@ html, body {
     0 0 70px rgba(63, 127, 214, 0.18);
   backdrop-filter: blur(8px);
 }
-#screen-title .title-3ds {
+.premium-screen .title-3ds {
   font-size: 54px;
   letter-spacing: .04em;
   background: linear-gradient(180deg, #fff7d6 0%, #ffd23f 32%, #ff9d3d 62%, #e6484b 100%);
@@ -264,19 +264,19 @@ html, body {
   0%, 100% { filter: drop-shadow(0 0 12px rgba(255, 180, 60, 0.4)); }
   50% { filter: drop-shadow(0 0 26px rgba(255, 180, 60, 0.85)); }
 }
-#screen-title .web-suffix {
+.premium-screen .web-suffix {
   letter-spacing: .5em;
   color: var(--n3ds-accent);
   -webkit-text-fill-color: var(--n3ds-accent);
   opacity: .85;
   text-shadow: 0 0 10px rgba(255, 210, 63, 0.5);
 }
-#screen-title .subtitle {
+.premium-screen .subtitle {
   font-size: 15px;
   opacity: .85;
   text-shadow: 0 1px 3px #000;
 }
-#screen-title .btn-primary {
+.premium-screen .btn-primary {
   background: linear-gradient(180deg, #ffe28a, #ffb03f 55%, #e6484b);
   border-color: rgba(255, 210, 63, 0.6);
   color: #2a1600;
@@ -284,7 +284,7 @@ html, body {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
   box-shadow: 0 0 24px rgba(255, 176, 63, 0.45), 0 8px 18px #0008;
 }
-#screen-title .btn:not(.btn-primary) {
+.premium-screen .btn:not(.btn-primary) {
   background: linear-gradient(160deg, rgba(38, 44, 64, 0.85), rgba(15, 18, 30, 0.9));
   border-color: rgba(255, 210, 63, 0.25);
 }
@@ -327,7 +327,9 @@ html, body {
   flex: 1;
   border-radius: 18px;
   overflow: hidden;
-  background: #000;
+  background: linear-gradient(160deg, rgba(12, 16, 30, 0.7), rgba(4, 6, 14, 0.85));
+  border: 1px solid rgba(255, 210, 63, 0.3);
+  box-shadow: inset 0 0 60px rgba(63, 127, 214, 0.18), 0 0 24px rgba(255, 210, 63, 0.08);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -354,6 +356,79 @@ html, body {
   touch-action: none;
 }
 .capture-controls { flex-shrink: 0; }
+
+.capture-title {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: .03em;
+  background: linear-gradient(180deg, #fff7d6 0%, #ffd23f 40%, #ff9d3d 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 10px rgba(255, 180, 60, 0.4));
+}
+
+/* ---------- sci-fi "scanner" framing on the capture stage ---------- */
+#scan-frame {
+  position: absolute;
+  inset: 20px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.scan-corner {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--n3ds-accent);
+  filter: drop-shadow(0 0 6px rgba(255, 210, 63, 0.6));
+  opacity: .9;
+}
+.scan-corner.tl { top: 0; left: 0; border-right: none; border-bottom: none; border-radius: 8px 0 0 0; }
+.scan-corner.tr { top: 0; right: 0; border-left: none; border-bottom: none; border-radius: 0 8px 0 0; }
+.scan-corner.bl { bottom: 0; left: 0; border-right: none; border-top: none; border-radius: 0 0 0 8px; }
+.scan-corner.br { bottom: 0; right: 0; border-left: none; border-top: none; border-radius: 0 0 8px 0; }
+.scan-line {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--n3ds-accent), transparent);
+  box-shadow: 0 0 12px rgba(255, 210, 63, 0.8);
+  animation: scan-sweep 2.4s ease-in-out infinite;
+}
+@keyframes scan-sweep {
+  0%, 100% { top: 6%; opacity: .2; }
+  50% { top: 94%; opacity: 1; }
+}
+#scan-idle-text {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  color: var(--n3ds-accent);
+  text-shadow: 0 0 10px rgba(255, 210, 63, 0.6);
+  animation: idle-pulse 1.6s ease-in-out infinite;
+}
+@keyframes idle-pulse {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
+
+#capture-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  pointer-events: none;
+  z-index: 3;
+  animation: capture-flash-anim .4s ease-out;
+}
+@keyframes capture-flash-anim {
+  from { opacity: .95; }
+  to { opacity: 0; }
+}
 
 /* ---------- ready screen ---------- */
 #ready-face-preview {

@@ -47,10 +47,10 @@
   <button id="mobile-fire-btn" class="hidden">FIRE</button>
 
   <!-- ===== TITLE ===== -->
-  <section id="screen-title" class="screen">
+  <section id="screen-title" class="screen premium-screen">
     <div class="panel top-panel">
       <h1 class="title-3ds">FACE<br/>BLOCKER<span class="web-suffix">WEB</span></h1>
-      <p class="subtitle">顔をアップロード or 撮影して、襲いくる自分の顔を撃退せよ</p>
+      <p class="subtitle">自分の顔をスキャンして敵に変え、襲いくるそいつを撃退せよ</p>
     </div>
     <div class="panel bottom-panel">
       <label class="field">
@@ -64,40 +64,47 @@
   </section>
 
   <!-- ===== FACE CAPTURE ===== -->
-  <section id="screen-capture" class="screen hidden">
-    <div class="panel top-panel">
-      <h2>敵の顔を用意する</h2>
-      <p id="capture-hint">カメラで撮影するか、画像をアップロードしてください</p>
+  <section id="screen-capture" class="screen capture-screen premium-screen hidden">
+    <div class="panel top-panel capture-title-panel">
+      <h2 class="capture-title">敵をスキャンせよ</h2>
+      <p id="capture-hint">カメラを起動して、宿敵となる「顔」を捕獲しよう</p>
     </div>
     <div id="capture-stage">
+      <div id="scan-frame">
+        <span class="scan-corner tl"></span>
+        <span class="scan-corner tr"></span>
+        <span class="scan-corner bl"></span>
+        <span class="scan-corner br"></span>
+        <span class="scan-line"></span>
+        <span id="scan-idle-text">📡 カメラ起動待機中...</span>
+      </div>
       <video id="capture-video" autoplay playsinline muted class="hidden"></video>
       <canvas id="capture-canvas" class="hidden"></canvas>
       <img id="capture-img" class="hidden" />
       <div id="crop-overlay" class="hidden">
         <div id="crop-box"></div>
       </div>
+      <div id="capture-flash" class="hidden"></div>
     </div>
-    <input id="file-input" type="file" accept="image/*" class="hidden" />
     <div class="panel bottom-panel capture-controls">
-      <div id="capture-choice-buttons" class="btn-row wrap">
-        <button id="btn-camera-user" class="btn">🤳 内カメラで撮影</button>
-        <button id="btn-camera-environment" class="btn">📷 外カメラで撮影</button>
-        <button id="btn-upload-open" class="btn">🖼 アップロード</button>
+      <div id="capture-choice-buttons" class="btn-row">
+        <button id="btn-camera-user" class="btn btn-primary">🤳 内カメラでスキャン開始</button>
+        <button id="btn-camera-environment" class="btn">📷 外カメラでスキャン開始</button>
       </div>
       <div id="capture-shoot-buttons" class="btn-row hidden">
-        <button id="btn-take-photo" class="btn btn-primary">この瞬間で撮影</button>
+        <button id="btn-take-photo" class="btn btn-primary">📸 キャプチャ！</button>
         <button id="btn-camera-switch" class="btn" title="内/外カメラを切り替え">🔄 切替</button>
         <button id="btn-capture-cancel" class="btn btn-ghost">もどる</button>
       </div>
       <div id="crop-buttons" class="btn-row hidden">
-        <button id="btn-crop-confirm" class="btn btn-primary">この範囲に決定</button>
+        <button id="btn-crop-confirm" class="btn btn-primary">✅ 捕獲完了</button>
         <button id="btn-crop-retry" class="btn btn-ghost">やりなおす</button>
       </div>
     </div>
   </section>
 
   <!-- ===== READY ===== -->
-  <section id="screen-ready" class="screen hidden">
+  <section id="screen-ready" class="screen premium-screen hidden">
     <div class="panel center-panel">
       <img id="ready-face-preview" alt="敵の顔プレビュー" />
       <h2>準備完了</h2>

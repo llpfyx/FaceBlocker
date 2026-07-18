@@ -16,6 +16,8 @@ const SAMPLE_FILES = {
   explosion: ["assets/audio/explosionCrunch_000.ogg", "assets/audio/explosionCrunch_001.ogg", "assets/audio/explosionCrunch_002.ogg"],
   lowBoom: ["assets/audio/lowFrequency_explosion_000.ogg"],
   impact: ["assets/audio/impactMetal_000.ogg", "assets/audio/impactMetal_001.ogg"],
+  shutter: ["assets/audio/click_003.ogg"],
+  confirm: ["assets/audio/confirmation_002.ogg"],
 };
 const sampleBuffers = {};
 let samplesLoadPromise = null;
@@ -202,6 +204,20 @@ export const sfx = {
   },
   gameOver() {
     tone({ freq: 300, slideTo: 40, duration: 0.9, type: "sawtooth", gain: 0.22 });
+  },
+  // face-capture screen: a snappy shutter click, then a bright "got it!"
+  // confirmation chime once the crop is locked in — small moments of
+  // positive feedback that make capturing your "enemy" feel satisfying.
+  shutter() {
+    blip({ freq: 1800, duration: 0.04, gain: 0.14 });
+    playSample("shutter", { gain: 0.5, rateJitter: 0 });
+  },
+  captureConfirm() {
+    const ratios = [1, 1.5, 2];
+    ratios.forEach((r, i) => {
+      blip({ freq: 880 * r, duration: 0.14, gain: 0.16 - i * 0.02, delay: i * 0.05, type: "triangle" });
+    });
+    playSample("confirm", { gain: 0.45 });
   },
 };
 

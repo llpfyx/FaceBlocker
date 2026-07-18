@@ -27,10 +27,15 @@ function exitTitleScene() {
   }
 }
 
+// The floating starfield/helmet scene stays live behind the whole
+// "pre-battle" flow (title -> face capture -> ready) for a consistent,
+// premium feel, and only gets torn down once real gameplay needs the canvas.
+const TITLE_SCENE_SCREENS = new Set(["title", "capture", "ready"]);
+
 function showScreen(name) {
   hideAllScreens();
   screens[name].classList.remove("hidden");
-  if (name === "title") {
+  if (TITLE_SCENE_SCREENS.has(name)) {
     if (!titleScene) titleScene = new TitleScene(gameCanvas);
   } else {
     exitTitleScene();
@@ -105,7 +110,9 @@ function resetCaptureScreen() {
   $("capture-choice-buttons").classList.remove("hidden");
   $("capture-shoot-buttons").classList.add("hidden");
   $("crop-buttons").classList.add("hidden");
-  $("capture-hint").textContent = "カメラで撮影するか、画像をアップロードしてください";
+  $("capture-hint").textContent = "カメラを起動して、宿敵となる「顔」を捕獲しよう";
+  $("scan-frame").classList.remove("hidden");
+  $("scan-idle-text").textContent = "📡 カメラ起動待機中...";
 }
 
 async function openCameraWith(facingMode) {
@@ -115,7 +122,8 @@ async function openCameraWith(facingMode) {
     $("capture-video").classList.remove("hidden");
     $("capture-choice-buttons").classList.add("hidden");
     $("capture-shoot-buttons").classList.remove("hidden");
-    $("capture-hint").textContent = "顔がまるく収まったら撮影しよう";
+    $("capture-hint").textContent = "顔をスキャン範囲に収めて、キャプチャ！";
+    $("scan-idle-text").textContent = "🔴 スキャン中...";
   } catch (e) {
     alert("カメラを起動できませんでした。カメラの権限や、端末にそのカメラが搭載されているか確認してください。");
   }
@@ -127,35 +135,34 @@ $("btn-camera-switch").addEventListener("click", () => {
   openCameraWith(currentFacingMode === "user" ? "environment" : "user");
 });
 
-$("btn-upload-open").addEventListener("click", () => $("file-input").click());
-$("file-input").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  await faceCapture.loadFile(file);
-  $("capture-img").classList.remove("hidden");
-  $("crop-overlay").classList.remove("hidden");
-  $("capture-choice-buttons").classList.add("hidden");
-  $("crop-buttons").classList.remove("hidden");
-  $("capture-hint").textContent = "○の枠をドラッグして顔がぴったり収まるように選ぼう";
-  requestAnimationFrame(() => faceCapture.resetCrop());
-  e.target.value = "";
-});
-
 $("btn-take-photo").addEventListener("click", async () => {
+  sfx.shutter();
+  flashCapture();
   await faceCapture.takePhoto();
   $("capture-video").classList.add("hidden");
   $("capture-img").classList.remove("hidden");
   $("crop-overlay").classList.remove("hidden");
   $("capture-shoot-buttons").classList.add("hidden");
   $("crop-buttons").classList.remove("hidden");
+  $("scan-frame").classList.add("hidden");
   $("capture-hint").textContent = "○の枠をドラッグして顔がぴったり収まるように選ぼう";
   requestAnimationFrame(() => faceCapture.resetCrop());
 });
+
+function flashCapture() {
+  const el = $("capture-flash");
+  el.classList.remove("hidden");
+  el.style.animation = "none";
+  void el.offsetWidth;
+  el.style.animation = "";
+  setTimeout(() => el.classList.add("hidden"), 400);
+}
 
 $("btn-capture-cancel").addEventListener("click", () => resetCaptureScreen());
 $("btn-crop-retry").addEventListener("click", () => faceCapture.resetCrop());
 
 $("btn-crop-confirm").addEventListener("click", () => {
+  sfx.captureConfirm();
   faceDataURL = faceCapture.confirmCrop(256);
   $("ready-face-preview").src = faceDataURL;
   $("controls-desc").textContent = isTouchDevice()

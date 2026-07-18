@@ -1,6 +1,6 @@
-// Handles webcam capture, file upload, and square crop selection for the
-// player's "enemy face" photo. Produces a square data-URL used as the
-// enemy sprite texture.
+// Handles webcam capture and oval crop selection for the player's "enemy
+// face" photo. Produces a square, face-masked data-URL used as the enemy
+// sprite texture.
 
 export class FaceCapture {
   constructor({ stageEl, videoEl, canvasEl, imgEl, overlayEl, boxEl }) {
@@ -51,18 +51,6 @@ export class FaceCapture {
     return new Promise((resolve) => {
       this.imgEl.onload = () => resolve();
       this.imgEl.src = this.canvasEl.toDataURL("image/png");
-    });
-  }
-
-  loadFile(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        this.imgEl.onload = () => resolve();
-        this.imgEl.src = reader.result;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
     });
   }
 
