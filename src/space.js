@@ -338,7 +338,7 @@ function makeGlowTexture(hex) {
   return tex;
 }
 
-function makeStarfield() {
+export function makeStarfield() {
   const starCount = 2200;
   const positions = new Float32Array(starCount * 3);
   const colors = new Float32Array(starCount * 3);

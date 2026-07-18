@@ -159,7 +159,12 @@ export class FaceCapture {
     this.overlayEl.addEventListener("pointercancel", end);
   }
 
-  /** Crops the current image to the selected square and returns a size x size data URL. */
+  /**
+   * Crops the current image to the selected region, masked to a face-shaped
+   * oval (transparent outside it) instead of a plain square, and returns a
+   * size x size data URL. The oval mask is what makes the enemy sprite read
+   * as a "target" cutout rather than a square photo.
+   */
   confirmCrop(outputSize = 256) {
     const iRect = this._imgRect();
     const oRect = this._overlayRect();
@@ -176,7 +181,14 @@ export class FaceCapture {
     out.width = outputSize;
     out.height = outputSize;
     const ctx = out.getContext("2d");
+    ctx.save();
+    ctx.beginPath();
+    const cx = outputSize / 2;
+    const cy = outputSize / 2;
+    ctx.ellipse(cx, cy, outputSize * 0.42, outputSize * 0.48, 0, 0, Math.PI * 2);
+    ctx.clip();
     ctx.drawImage(this.imgEl, sx, sy, ssize, ssize, 0, 0, outputSize, outputSize);
+    ctx.restore();
     return out.toDataURL("image/png");
   }
 }

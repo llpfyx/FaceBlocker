@@ -166,10 +166,39 @@ class BattleMusic {
     this._gain = getBgmGain(c);
     this._gain.gain.cancelScheduledValues(c.currentTime);
     this._gain.gain.setValueAtTime(this._gain.gain.value, c.currentTime);
-    this._gain.gain.linearRampToValueAtTime(0.22, c.currentTime + 1.8);
+    this._gain.gain.linearRampToValueAtTime(0.26, c.currentTime + 0.4);
+    this._playOpeningStinger(c.currentTime + 0.05);
     this._barIndex = 0;
-    this._nextBarTime = c.currentTime + 0.1;
+    this._nextBarTime = c.currentTime + 1.35; // let the stinger ring out first
     this._scheduler();
+  }
+
+  // A big bright unison "movie fanfare" hit the instant battle starts —
+  // a wide brass chord across octaves plus a timpani punch underneath.
+  _playOpeningStinger(t) {
+    const c = getCtx();
+    const rootMidi = 62; // D
+    const chordMidis = [rootMidi - 12, rootMidi, rootMidi + 4, rootMidi + 7, rootMidi + 12, rootMidi + 16];
+    const filter = c.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 3200;
+    filter.connect(this._gain);
+    for (const m of chordMidis) {
+      for (const type of ["sawtooth", "square"]) {
+        const osc = c.createOscillator();
+        osc.type = type;
+        osc.frequency.value = midiFreq(m) * (type === "square" ? 1 : 1.004);
+        const g = c.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.32, t + 0.03);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 1.15);
+        osc.connect(g).connect(filter);
+        osc.start(t);
+        osc.stop(t + 1.2);
+      }
+    }
+    this._playTimp(t);
+    this._playTimp(t + 0.3);
   }
 
   stop() {

@@ -4,6 +4,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { sfx, battleMusic } from "./audio.js";
 import { SpaceBackdrop } from "./space.js";
+import { createHelmetTextures, helmetTierForPhase } from "./helmets.js";
 
 const PITCH_MIN = THREE.MathUtils.degToRad(-70);
 const PITCH_MAX = THREE.MathUtils.degToRad(80);
@@ -108,6 +109,7 @@ export class Game {
 
     this.enemies = [];
     this.faceTexture = null;
+    this.helmetTextures = createHelmetTextures();
     this._markerEls = new Map();
     this._bursts = [];
     this._shakeUntil = 0;
@@ -229,7 +231,7 @@ export class Game {
     this._gyroLastRawYawRad = rawYawRad;
 
     this._gyroTargetYaw = this._gyroUnwrappedYaw * GYRO_SENS;
-    this._gyroTargetPitch = THREE.MathUtils.clamp(-_gyroOutEuler.x * GYRO_SENS, PITCH_MIN, PITCH_MAX);
+    this._gyroTargetPitch = THREE.MathUtils.clamp(_gyroOutEuler.x * GYRO_SENS, PITCH_MIN, PITCH_MAX);
   }
 
   _onCanvasDown() {
@@ -340,6 +342,7 @@ export class Game {
     }
     this._bursts = [];
     this.dom.scorePopups.innerHTML = "";
+    for (const t of this.helmetTextures) t.dispose();
     this.space.dispose();
     this.composer.dispose();
     this.renderer.dispose();
@@ -384,10 +387,19 @@ export class Game {
     const group = new THREE.Group();
     group.add(sprite);
 
+    const helmetTex = this.helmetTextures[helmetTierForPhase(this.stats.phase)];
+    const helmetSprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: helmetTex, transparent: true, depthTest: false })
+    );
+    helmetSprite.scale.set(0.01, 0.01, 1);
+    helmetSprite.renderOrder = 2; // always paint on top of the face sprite
+    group.add(helmetSprite);
+
     let hpBar = null;
     if (ps.maxHp > 1) {
       hpBar = this._makeHpBarSprite();
       hpBar.sprite.position.set(0, 0.85, 0);
+      hpBar.sprite.renderOrder = 3;
       group.add(hpBar.sprite);
     }
 
@@ -396,6 +408,7 @@ export class Game {
     const enemy = {
       group,
       sprite,
+      helmetSprite,
       hpBar,
       hp: ps.maxHp,
       maxHp: ps.maxHp,
@@ -633,6 +646,8 @@ export class Game {
       const approachScale = THREE.MathUtils.lerp(1.0, 2.2, t);
       const scale = spawnScale * approachScale * hitPulse;
       enemy.sprite.scale.set(scale, scale, 1);
+      enemy.helmetSprite.scale.set(scale * 1.08, scale * 1.08, 1);
+      enemy.helmetSprite.position.set(0, scale * 0.2, 0.001);
       if (enemy.hpBar) enemy.hpBar.sprite.position.set(0, 0.75 * scale, 0);
     }
   }

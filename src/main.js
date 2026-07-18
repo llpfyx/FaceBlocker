@@ -1,5 +1,6 @@
 import { FaceCapture } from "./camera.js";
 import { Game } from "./game.js";
+import { TitleScene } from "./titleScene.js";
 import { ranking, history } from "./ranking.js";
 import { sfx } from "./audio.js";
 
@@ -18,9 +19,22 @@ function hideAllScreens() {
   for (const el of Object.values(screens)) el.classList.add("hidden");
 }
 
+let titleScene = null;
+function exitTitleScene() {
+  if (titleScene) {
+    titleScene.destroy();
+    titleScene = null;
+  }
+}
+
 function showScreen(name) {
   hideAllScreens();
   screens[name].classList.remove("hidden");
+  if (name === "title") {
+    if (!titleScene) titleScene = new TitleScene(gameCanvas);
+  } else {
+    exitTitleScene();
+  }
 }
 
 function isTouchDevice() {
@@ -122,7 +136,7 @@ $("file-input").addEventListener("change", async (e) => {
   $("crop-overlay").classList.remove("hidden");
   $("capture-choice-buttons").classList.add("hidden");
   $("crop-buttons").classList.remove("hidden");
-  $("capture-hint").textContent = "四角をドラッグして顔の範囲を選ぼう";
+  $("capture-hint").textContent = "○の枠をドラッグして顔がぴったり収まるように選ぼう";
   requestAnimationFrame(() => faceCapture.resetCrop());
   e.target.value = "";
 });
@@ -134,7 +148,7 @@ $("btn-take-photo").addEventListener("click", async () => {
   $("crop-overlay").classList.remove("hidden");
   $("capture-shoot-buttons").classList.add("hidden");
   $("crop-buttons").classList.remove("hidden");
-  $("capture-hint").textContent = "四角をドラッグして顔の範囲を選ぼう";
+  $("capture-hint").textContent = "○の枠をドラッグして顔がぴったり収まるように選ぼう";
   requestAnimationFrame(() => faceCapture.resetCrop());
 });
 
@@ -161,6 +175,7 @@ $("btn-go").addEventListener("click", async () => {
 });
 
 async function startGame() {
+  exitTitleScene(); // must free the canvas before Game creates its own renderer on it
   hideAllScreens();
   crosshair.classList.remove("hidden");
   hud.classList.remove("hidden");
