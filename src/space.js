@@ -319,6 +319,63 @@ function makeRingTexture() {
   return tex;
 }
 
+// Post-Pluto endless "galaxy" backdrop: a procedural spiral-galaxy sprite
+// (bright core + soft spiral arms) rendered with additive blending so it
+// glows against the starfield instead of a solid planet — signals "you've
+// left the solar system" for the infinite final stage.
+function makeGalaxyTexture() {
+  const size = 1024;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const cx = size / 2,
+    cy = size / 2;
+  const rand = mulberry32(777);
+
+  const armCount = 4;
+  const armPoints = 260;
+  for (let a = 0; a < armCount; a++) {
+    const armOffset = (a / armCount) * Math.PI * 2;
+    for (let i = 0; i < armPoints; i++) {
+      const t = i / armPoints;
+      const radius = t * size * 0.46;
+      const angle = armOffset + t * Math.PI * 2.6;
+      const spread = (rand() - 0.5) * (30 + t * 70);
+      const x = cx + Math.cos(angle) * radius + spread;
+      const y = cy + Math.sin(angle) * radius * 0.55 + spread * 0.55;
+      const r = 4 + rand() * 10 * (1 - t * 0.5);
+      const hueMix = rand();
+      const color = hueMix < 0.5 ? "200,215,255" : hueMix < 0.8 ? "255,240,220" : "220,200,255";
+      const alpha = (0.12 + rand() * 0.18) * (1 - t * 0.35);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(${color},${alpha})`);
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // bright core glow on top
+  const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, size * 0.22);
+  core.addColorStop(0, "rgba(255,250,235,0.95)");
+  core.addColorStop(0.35, "rgba(255,235,210,0.55)");
+  core.addColorStop(1, "rgba(255,235,210,0)");
+  ctx.fillStyle = core;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+export const GALAXY_STAGE = { key: "galaxy", name: "GALAXY / 銀河系", ambient: 0xaac4ff };
+
 function makeGlowTexture(hex) {
   const [r, g, b] = hexToRgb(hex);
   const size = 256;
@@ -412,16 +469,43 @@ export class SpaceBackdrop {
     this.ringMesh.visible = false;
     this.planetGroup.add(this.ringMesh);
 
+    this.galaxyTexture = makeGalaxyTexture();
+    this.galaxySprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: this.galaxyTexture, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })
+    );
+    this.galaxySprite.visible = false;
+    this.galaxySprite.scale.setScalar(46);
+    this.planetGroup.add(this.galaxySprite);
+
     this.currentIndex = -1;
+    this.inGalaxyMode = false;
     this._pulseUntil = 0;
     this.setPlanetIndex(0);
   }
 
+  setGalaxyMode() {
+    if (this.inGalaxyMode) return GALAXY_STAGE;
+    this.inGalaxyMode = true;
+    this.currentIndex = PLANETS.length;
+    this.planetMesh.visible = false;
+    this.cloudMesh.visible = false;
+    this.ringMesh.visible = false;
+    this.glowSprite.visible = false;
+    this.galaxySprite.visible = true;
+    this.ambient.color.setHex(GALAXY_STAGE.ambient);
+    this._pulseUntil = performance.now() + 500;
+    return GALAXY_STAGE;
+  }
+
   setPlanetIndex(index) {
     index = Math.min(index, PLANETS.length - 1);
-    if (index === this.currentIndex) return PLANETS[index];
+    if (index === this.currentIndex && !this.inGalaxyMode) return PLANETS[index];
     this.currentIndex = index;
+    this.inGalaxyMode = false;
     const planet = PLANETS[index];
+    this.planetMesh.visible = true;
+    this.glowSprite.visible = true;
+    this.galaxySprite.visible = false;
     this.planetMesh.material.map = this.textures[index];
     this.planetMesh.material.needsUpdate = true;
     this.planetMesh.scale.setScalar(planet.radius);
@@ -442,12 +526,13 @@ export class SpaceBackdrop {
   }
 
   get currentPlanet() {
-    return PLANETS[this.currentIndex];
+    return this.inGalaxyMode ? GALAXY_STAGE : PLANETS[this.currentIndex];
   }
 
   update(now, dt) {
     this.planetMesh.rotation.y += dt * 0.00006;
     if (this.cloudMesh.visible) this.cloudMesh.rotation.y += dt * 0.00011;
+    if (this.inGalaxyMode) this.galaxySprite.material.rotation += dt * 0.00004;
     this.stars.rotation.y += dt * 0.0000015;
     if (now < this._pulseUntil) {
       const t = 1 - (this._pulseUntil - now) / 500;
@@ -470,6 +555,8 @@ export class SpaceBackdrop {
     this.ringMesh.material.dispose();
     this.ringTexture.dispose();
     this.glowSprite.material.dispose();
+    this.galaxySprite.material.dispose();
+    this.galaxyTexture.dispose();
     for (const t of this.textures) t.dispose();
     for (const t of this.glowTextures) t.dispose();
   }

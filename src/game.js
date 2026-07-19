@@ -4,7 +4,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { sfx, battleMusic } from "./audio.js";
-import { SpaceBackdrop } from "./space.js";
+import { SpaceBackdrop, PLANETS } from "./space.js";
 import { createHelmetTextures, helmetTierForPhase, loadTopHelmetModel } from "./helmets.js";
 
 const PITCH_MIN = THREE.MathUtils.degToRad(-70);
@@ -18,15 +18,30 @@ function isTouchDevice() {
   return "ontouchstart" in window || navigator.maxTouchPoints > 0;
 }
 
-// Stage 1: enemies only approach from directly in front of wherever the
-// player is currently looking (easy/tutorial framing). Stage 2 widens the
-// cone. Stage 3+ opens up to the full surrounding sphere, matching when
-// evasive side-to-side movement also kicks in — the difficulty ramps up
-// on two fronts at once.
-function spawnYawHalfRange(phase) {
-  if (phase <= 1) return THREE.MathUtils.degToRad(30);
-  if (phase === 2) return THREE.MathUtils.degToRad(90);
-  return Math.PI;
+// The camera's *vertical* FOV is fixed, but the visible *horizontal* FOV
+// depends on the viewport's aspect ratio — a tall phone screen in portrait
+// sees a much narrower horizontal slice than a wide PC window at the same
+// vertical FOV. "In front of the player" has to be measured against that
+// actual visible width, or a cone tuned for a PC's wide view spawns enemies
+// off the edge of a phone screen — the exact bug reported ("stage 1 enemies
+// aren't really in front on my phone").
+function horizontalHalfFovRad(camera) {
+  const vHalf = THREE.MathUtils.degToRad(camera.fov) / 2;
+  return Math.atan(Math.tan(vHalf) * camera.aspect);
+}
+
+// Stage 1-2: enemies stay within (a fraction of) the player's actual visible
+// width, so "in front" always means "on screen" regardless of device.
+// Stage 3 onward: the cone widens *gradually* bar by bar, reaching the full
+// surrounding sphere right as Pluto (the last planet) is reached — so the
+// whole journey from Earth to Pluto is one smooth difficulty ramp, not a
+// sudden jump. It stays fully open for the endless post-Pluto galaxy stage.
+function spawnYawHalfRange(phase, camera) {
+  const halfFov = horizontalHalfFovRad(camera);
+  if (phase <= 1) return halfFov * 0.7;
+  if (phase === 2) return halfFov * 1.0;
+  const t = THREE.MathUtils.clamp((phase - 3) / 6, 0, 1); // phase 3 -> phase 9 (Pluto)
+  return THREE.MathUtils.lerp(halfFov * 1.3, Math.PI, t);
 }
 
 function phaseTint(phase) {
@@ -425,7 +440,7 @@ export class Game {
   // ---------- enemy spawning / phase scaling ----------
 
   _phaseStats() {
-    const phase = this.stats.phase;
+    const phase = this._effectivePhase();
     return {
       maxHp: Math.ceil(phase / 2),
       attackDamage: 6 + phase * 2,
@@ -446,15 +461,16 @@ export class Game {
 
   _spawnEnemy(ps) {
     if (!this.faceTexture) return;
-    const halfRange = spawnYawHalfRange(this.stats.phase);
+    const effPhase = this._effectivePhase();
+    const halfRange = spawnYawHalfRange(effPhase, this.camera);
     const yaw = this.yaw + (Math.random() * 2 - 1) * halfRange;
     const pitch = THREE.MathUtils.degToRad(-15 + Math.random() * 55);
     const startRadius = 8 + Math.random() * 5;
-    const evasive = this.stats.phase >= 3;
+    const evasive = effPhase >= 3;
 
     const material = new THREE.SpriteMaterial({
       map: this.faceTexture,
-      color: phaseTint(this.stats.phase),
+      color: phaseTint(effPhase),
       transparent: true,
     });
     const sprite = new THREE.Sprite(material);
@@ -463,7 +479,7 @@ export class Game {
     const group = new THREE.Group();
     group.add(sprite);
 
-    const helmetTier = helmetTierForPhase(this.stats.phase);
+    const helmetTier = helmetTierForPhase(effPhase);
     const useTopModel = helmetTier === 3 && !!this.topHelmetModel;
     let helmetSprite;
     let helmetBaseScale = 1;
@@ -561,7 +577,7 @@ export class Game {
       this._killEnemy(enemy);
     } else {
       sfx.hit();
-      this._spawnHitSpark(enemy.group.position.clone(), phaseTint(this.stats.phase));
+      this._spawnHitSpark(enemy.group.position.clone(), phaseTint(this._effectivePhase()));
       this._redrawHpBar(enemy);
     }
   }
@@ -571,7 +587,7 @@ export class Game {
     this.stats.kills += 1;
     this.stats.combo += 1;
     const comboMult = 1 + Math.min(this.stats.combo, 20) * 0.1;
-    const gained = Math.round(100 * this.stats.phase * comboMult);
+    const gained = Math.round(100 * this._effectivePhase() * comboMult);
     this.stats.score += gained;
 
     const milestone = this.stats.combo > 0 && this.stats.combo % 5 === 0;
@@ -579,8 +595,8 @@ export class Game {
     if (milestone) sfx.comboMilestone();
 
     const pos = enemy.group.position.clone();
-    this._spawnKillBurst(pos, phaseTint(this.stats.phase), milestone);
-    this._spawnShockwave(pos, phaseTint(this.stats.phase), milestone);
+    this._spawnKillBurst(pos, phaseTint(this._effectivePhase()), milestone);
+    this._spawnShockwave(pos, phaseTint(this._effectivePhase()), milestone);
     this._spawnScorePopup(pos, `+${gained.toLocaleString()}`, milestone);
     this._triggerShake(milestone ? 0.075 : 0.04, milestone ? 280 : 170);
 
@@ -756,13 +772,33 @@ export class Game {
     this._shakeDuration = durationMs;
   }
 
+  // Once Pluto (the 9th/last planet) is cleared, the phase counter stops
+  // driving difficulty via kills — the galaxy stage is endless, so instead
+  // difficulty creeps up gradually every 1000 score points (the user's
+  // explicit spec), read by _effectivePhase().
   _maybeAdvancePhase() {
+    if (this._galaxyModeActive) return;
     if (this.stats.kills < this.stats.nextPhaseAt) return;
     this.stats.phase += 1;
     this.stats.nextPhaseAt += 5 + (this.stats.phase - 1) * 2;
     sfx.phaseUp();
-    const planet = this.space.setPlanetIndex(this.stats.phase - 1);
-    this.dom.planetLabel.textContent = planet.name;
+    if (this.stats.phase - 1 < PLANETS.length) {
+      const planet = this.space.setPlanetIndex(this.stats.phase - 1);
+      this.dom.planetLabel.textContent = planet.name;
+    } else {
+      this._galaxyModeActive = true;
+      const galaxy = this.space.setGalaxyMode();
+      this.dom.planetLabel.textContent = galaxy.name;
+    }
+  }
+
+  // The difficulty-scaling "phase" used by combat tuning: identical to the
+  // real kill-based phase while journeying through the planets, but once the
+  // galaxy stage begins it keeps climbing with score instead (every 1000
+  // points = +1 effective phase), since kills-to-next-phase no longer fires.
+  _effectivePhase() {
+    if (!this._galaxyModeActive) return this.stats.phase;
+    return this.stats.phase + Math.floor(this.stats.score / 1000);
   }
 
   _enemyAttacks(enemy) {
@@ -881,7 +917,7 @@ export class Game {
       el.style.left = `${screenX}px`;
       el.style.top = `${screenY}px`;
       el.style.transform = `translate(-30%, -50%) rotate(${angleDeg}deg)`;
-      el.style.borderColor = `transparent transparent transparent ${cssColor(phaseTint(this.stats.phase))}`;
+      el.style.borderColor = `transparent transparent transparent ${cssColor(phaseTint(this._effectivePhase()))}`;
     }
 
     for (const [enemy, el] of this._markerEls) {
