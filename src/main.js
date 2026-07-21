@@ -107,6 +107,7 @@ function resetCaptureScreen() {
   $("capture-video").classList.add("hidden");
   $("capture-img").classList.add("hidden");
   $("crop-overlay").classList.add("hidden");
+  $("face-guide").classList.add("hidden");
   $("capture-choice-buttons").classList.remove("hidden");
   $("capture-shoot-buttons").classList.add("hidden");
   $("crop-buttons").classList.add("hidden");
@@ -122,7 +123,8 @@ async function openCameraWith(facingMode) {
     $("capture-video").classList.remove("hidden");
     $("capture-choice-buttons").classList.add("hidden");
     $("capture-shoot-buttons").classList.remove("hidden");
-    $("capture-hint").textContent = "顔をスキャン範囲に収めて、キャプチャ！";
+    $("face-guide").classList.remove("hidden");
+    $("capture-hint").textContent = "目と口をガイドに合わせて、キャプチャ！";
     $("scan-idle-text").textContent = "🔴 スキャン中...";
   } catch (e) {
     alert("カメラを起動できませんでした。カメラの権限や、端末にそのカメラが搭載されているか確認してください。");
@@ -142,6 +144,7 @@ $("btn-take-photo").addEventListener("click", async () => {
   $("capture-video").classList.add("hidden");
   $("capture-img").classList.remove("hidden");
   $("crop-overlay").classList.remove("hidden");
+  $("face-guide").classList.add("hidden");
   $("capture-shoot-buttons").classList.add("hidden");
   $("crop-buttons").classList.remove("hidden");
   $("scan-frame").classList.add("hidden");

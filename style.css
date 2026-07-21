@@ -357,6 +357,46 @@ html, body {
 }
 .capture-controls { flex-shrink: 0; }
 
+/* ---------- eye/mouth alignment guide shown while the live scan is running ---------- */
+#face-guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.face-guide-eye {
+  position: absolute;
+  top: 40%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 2px solid #4dff8a;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(77, 255, 138, 0.8);
+}
+.face-guide-eye::before, .face-guide-eye::after {
+  content: "";
+  position: absolute;
+  background: #4dff8a;
+  box-shadow: 0 0 6px rgba(77, 255, 138, 0.8);
+}
+.face-guide-eye::before { left: 50%; top: -7px; width: 2px; height: 6px; transform: translateX(-50%); }
+.face-guide-eye::after { left: 50%; bottom: -7px; width: 2px; height: 6px; transform: translateX(-50%); }
+.face-guide-eye.left { left: 38%; }
+.face-guide-eye.right { left: 62%; }
+.face-guide-mouth {
+  position: absolute;
+  top: 63%;
+  left: 50%;
+  width: 84px;
+  height: 20px;
+  margin: -10px 0 0 -42px;
+  border: 2px solid #4dff8a;
+  border-top: none;
+  border-radius: 0 0 40px 40px;
+  box-shadow: 0 0 8px rgba(77, 255, 138, 0.8);
+}
+
 .capture-title {
   margin: 0 0 6px;
   font-size: 28px;

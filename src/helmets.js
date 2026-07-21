@@ -3,7 +3,10 @@
 // available in this environment, so tiers 0-2 are hand-drawn with Canvas 2D
 // paths/gradients instead of generated bitmaps. Helmets get more elaborate
 // as the phase tier rises:
-//   tier 0: simple yellow hard-hat (procedural)
+//   tier 0: robotic camera-eye dome (procedural) — reference design: a round
+//           yellow-green dome with a black visor band, a single glowing
+//           camera-lens "eye", and a whip antenna, echoing the classic
+//           face-shooter enemy look (a friendly-but-mechanical target head).
 //   tier 1: baseball helmet (procedural)
 //   tier 2: horned (viking-style) helmet (procedural)
 //   tier 3: "DamagedHelmet" — a real 3D model (CC BY 4.0, Khronos Group's
@@ -52,19 +55,51 @@ function drawDome(ctx, colorTop, colorBottom, ry = 92, rx = 96) {
 function tier0_simpleYellow() {
   const canvas = makeCanvas();
   const ctx = canvas.getContext("2d");
-  drawDome(ctx, "#ffe066", "#f2b705", 84, 92);
+  drawDome(ctx, "#e8e066", "#a8a026", 84, 92);
   // brim
-  ctx.fillStyle = "#d69e00";
+  ctx.fillStyle = "#8f8a1e";
   ctx.beginPath();
   ctx.ellipse(CX, BASE_Y, 100, 14, 0, 0, Math.PI * 2);
   ctx.fill();
-  // center ridge
-  ctx.strokeStyle = "rgba(150,100,0,0.5)";
-  ctx.lineWidth = 3;
+
+  // front visor band — a robotic camera-eye look
+  ctx.fillStyle = "#1c1c1c";
+  ctx.beginPath();
+  ctx.ellipse(CX, BASE_Y - 34, 62, 20, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // glowing cyan camera lens set into the visor
+  const lensGrad = ctx.createRadialGradient(CX, BASE_Y - 34, 2, CX, BASE_Y - 34, 16);
+  lensGrad.addColorStop(0, "#aef7ff");
+  lensGrad.addColorStop(0.5, "#33bcd6");
+  lensGrad.addColorStop(1, "#0a2f36");
+  ctx.fillStyle = lensGrad;
+  ctx.beginPath();
+  ctx.arc(CX, BASE_Y - 34, 15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#0a0a0a";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // small bolt rivets flanking the visor
+  ctx.fillStyle = "#5c5800";
+  for (const dir of [-1, 1]) {
+    ctx.beginPath();
+    ctx.arc(CX + dir * 74, BASE_Y - 30, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // whip antenna
+  ctx.strokeStyle = "#8a8400";
+  ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.moveTo(CX, BASE_Y - 82);
-  ctx.lineTo(CX, BASE_Y - 4);
+  ctx.lineTo(CX, BASE_Y - 118);
   ctx.stroke();
+  ctx.fillStyle = "#ff5d5d";
+  ctx.beginPath();
+  ctx.arc(CX, BASE_Y - 122, 7, 0, Math.PI * 2);
+  ctx.fill();
   return toTexture(canvas);
 }
 

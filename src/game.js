@@ -55,6 +55,77 @@ function cssColor(hex) {
   return `#${hex.toString(16).padStart(6, "0")}`;
 }
 
+// From this phase on, some spawns are decoy "obstacle" targets instead of
+// faces — hitting one costs the player a bit of HP, teaching them to check
+// before firing rather than spraying at everything on screen.
+const OBSTACLE_MIN_PHASE = 5;
+const OBSTACLE_SPAWN_CHANCE = 0.3;
+const OBSTACLE_HIT_PENALTY = 10;
+
+// Procedurally-drawn decoy/obstacle target: a dark mechanical "X" body with
+// a warning-red core, deliberately reading as hostile hazard rather than a
+// face to shoot — visually distinct from the friendly camera-eye helmets.
+function makeObstacleTexture() {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const cx = size / 2,
+    cy = size / 2;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  const bladeGrad = ctx.createLinearGradient(0, -70, 0, 70);
+  bladeGrad.addColorStop(0, "#5a4a78");
+  bladeGrad.addColorStop(0.5, "#2c2240");
+  bladeGrad.addColorStop(1, "#160f22");
+  for (const angle of [Math.PI / 4, (3 * Math.PI) / 4, (5 * Math.PI) / 4, (7 * Math.PI) / 4]) {
+    ctx.save();
+    ctx.rotate(angle);
+    ctx.fillStyle = bladeGrad;
+    ctx.beginPath();
+    ctx.moveTo(-24, -18);
+    ctx.lineTo(24, -18);
+    ctx.lineTo(16, 90);
+    ctx.lineTo(-16, 90);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,90,90,0.35)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // central hub
+  const hubGrad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 46);
+  hubGrad.addColorStop(0, "#4a3d64");
+  hubGrad.addColorStop(1, "#1c1628");
+  ctx.fillStyle = hubGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 46, 0, Math.PI * 2);
+  ctx.fill();
+
+  // glowing red warning eye — signals "do not shoot" at a glance
+  const eyeGrad = ctx.createRadialGradient(cx, cy, 2, cx, cy, 22);
+  eyeGrad.addColorStop(0, "#ffdede");
+  eyeGrad.addColorStop(0.4, "#ff3b3b");
+  eyeGrad.addColorStop(1, "#5c0808");
+  ctx.fillStyle = eyeGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#1c1628";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 // Soft radial ring (transparent center + edges, bright band in between) used
 // as an expanding shockwave sprite on kill, for an actual "explosion" read
 // instead of just scattering particles.
@@ -161,6 +232,7 @@ export class Game {
     this.enemies = [];
     this.faceTexture = null;
     this.helmetTextures = createHelmetTextures();
+    this.obstacleTexture = makeObstacleTexture();
     this.topHelmetModel = null;
     loadTopHelmetModel()
       .then((model) => {
@@ -418,6 +490,7 @@ export class Game {
     this._shockwaveTexture.dispose();
     this.dom.scorePopups.innerHTML = "";
     for (const t of this.helmetTextures) t.dispose();
+    this.obstacleTexture.dispose();
     if (this.topHelmetModel) {
       this.topHelmetModel.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
@@ -456,7 +529,12 @@ export class Game {
     if (this.spawnTimer < ps.spawnIntervalMs) return;
     if (this.enemies.length >= ps.maxConcurrent) return;
     this.spawnTimer = 0;
-    this._spawnEnemy(ps);
+    const effPhase = this._effectivePhase();
+    if (effPhase >= OBSTACLE_MIN_PHASE && Math.random() < OBSTACLE_SPAWN_CHANCE) {
+      this._spawnObstacle(ps);
+    } else {
+      this._spawnEnemy(ps);
+    }
   }
 
   _spawnEnemy(ps) {
@@ -530,6 +608,50 @@ export class Game {
     if (hpBar) this._redrawHpBar(enemy);
   }
 
+  // A decoy "obstacle" target (from OBSTACLE_MIN_PHASE on): flies in like a
+  // normal enemy but carries no face/helmet and is never worth shooting —
+  // hitting it costs the player HP instead of scoring a kill (see _fire /
+  // _hitObstacle). Left alone, it just times out harmlessly.
+  _spawnObstacle(ps) {
+    const effPhase = this._effectivePhase();
+    const halfRange = spawnYawHalfRange(effPhase, this.camera);
+    const yaw = this.yaw + (Math.random() * 2 - 1) * halfRange;
+    const pitch = THREE.MathUtils.degToRad(-15 + Math.random() * 55);
+    const startRadius = 8 + Math.random() * 5;
+
+    const material = new THREE.SpriteMaterial({ map: this.obstacleTexture, transparent: true });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(0.01, 0.01, 1);
+
+    const group = new THREE.Group();
+    group.add(sprite);
+    this.scene.add(group);
+
+    const enemy = {
+      group,
+      sprite,
+      helmetSprite: null,
+      helmetIs3D: false,
+      helmetBaseScale: 1,
+      hpBar: null,
+      hp: 1,
+      maxHp: 1,
+      attackDamage: 0,
+      yaw,
+      pitch,
+      evasive: true,
+      startRadius,
+      endRadius: 2.8,
+      spawnAt: performance.now(),
+      lifespan: ps.lifespanMs,
+      seed: Math.random() * 1000,
+      dead: false,
+      hitFlashUntil: 0,
+      isObstacle: true,
+    };
+    this.enemies.push(enemy);
+  }
+
   _makeHpBarSprite() {
     const canvas = document.createElement("canvas");
     canvas.width = 64;
@@ -567,7 +689,27 @@ export class Game {
     const hitSprite = hits[0].object;
     const enemy = this.enemies.find((e) => e.sprite === hitSprite);
     if (!enemy || enemy.dead) return;
-    this._damageEnemy(enemy);
+    if (enemy.isObstacle) {
+      this._hitObstacle(enemy);
+    } else {
+      this._damageEnemy(enemy);
+    }
+  }
+
+  // Shooting a decoy obstacle is a mistake, not a kill: no score, combo
+  // resets, and the player eats a small fixed HP penalty (not phase-scaled,
+  // so it stays "a little" damage all the way through the endless stage).
+  _hitObstacle(enemy) {
+    enemy.dead = true;
+    this.player.hp = Math.max(0, this.player.hp - OBSTACLE_HIT_PENALTY);
+    this.stats.combo = 0;
+    sfx.enemyAttack();
+    this._flashHit();
+    this._spawnHitSpark(enemy.group.position.clone(), 0xff3030);
+    this.scene.remove(enemy.group);
+    this.enemies = this.enemies.filter((e) => e !== enemy);
+    this._updateHud();
+    if (this.player.hp <= 0) this._gameOver();
   }
 
   _damageEnemy(enemy) {
@@ -837,7 +979,13 @@ export class Game {
       const t = THREE.MathUtils.clamp(elapsed / enemy.lifespan, 0, 1);
 
       if (t >= 1) {
-        this._enemyAttacks(enemy);
+        if (enemy.isObstacle) {
+          // decoys don't attack — left alone, they just harmlessly time out
+          this.scene.remove(enemy.group);
+          this.enemies = this.enemies.filter((e) => e !== enemy);
+        } else {
+          this._enemyAttacks(enemy);
+        }
         continue;
       }
 
@@ -859,14 +1007,16 @@ export class Game {
       const approachScale = THREE.MathUtils.lerp(1.0, 2.2, t);
       const scale = spawnScale * approachScale * hitPulse;
       enemy.sprite.scale.set(scale, scale, 1);
-      if (enemy.helmetIs3D) {
-        // the real model's own baked-in scale (from loadTopHelmetModel) is
-        // preserved as a multiplier — only the grow-in animation is added here.
-        enemy.helmetSprite.scale.setScalar(scale * enemy.helmetBaseScale);
-        enemy.helmetSprite.position.set(0, scale * 0.42, scale * 0.05);
-      } else {
-        enemy.helmetSprite.scale.set(scale * 1.08, scale * 1.08, 1);
-        enemy.helmetSprite.position.set(0, scale * 0.2, 0.001);
+      if (enemy.helmetSprite) {
+        if (enemy.helmetIs3D) {
+          // the real model's own baked-in scale (from loadTopHelmetModel) is
+          // preserved as a multiplier — only the grow-in animation is added here.
+          enemy.helmetSprite.scale.setScalar(scale * enemy.helmetBaseScale);
+          enemy.helmetSprite.position.set(0, scale * 0.42, scale * 0.05);
+        } else {
+          enemy.helmetSprite.scale.set(scale * 1.08, scale * 1.08, 1);
+          enemy.helmetSprite.position.set(0, scale * 0.2, 0.001);
+        }
       }
       if (enemy.hpBar) enemy.hpBar.sprite.position.set(0, 0.75 * scale, 0);
     }
