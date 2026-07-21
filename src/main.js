@@ -121,6 +121,7 @@ async function openCameraWith(facingMode) {
     await faceCapture.openCamera(facingMode);
     currentFacingMode = facingMode;
     $("capture-video").classList.remove("hidden");
+    $("capture-video").classList.toggle("mirrored", facingMode !== "environment");
     $("capture-choice-buttons").classList.add("hidden");
     $("capture-shoot-buttons").classList.remove("hidden");
     $("face-guide").classList.remove("hidden");

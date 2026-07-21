@@ -18,6 +18,7 @@ export class FaceCapture {
 
   async openCamera(facingMode = "user") {
     this.stopCamera();
+    this.facingMode = facingMode;
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode, width: { ideal: 1280 }, height: { ideal: 1280 } },
       audio: false,
@@ -33,9 +34,17 @@ export class FaceCapture {
     }
   }
 
-  /** Grabs the current video frame (mirrored to match the live preview) into capture-img. */
+  /**
+   * Grabs the current video frame into capture-img. Only the front ("user")
+   * camera is mirrored, matching its mirrored live preview (a selfie-style
+   * flip so raising your right hand appears on your right, as expected from
+   * a front camera) — the rear ("environment") camera shows the world as-is,
+   * like a normal camera, so it must NOT be flipped or left/right end up
+   * reversed from reality.
+   */
   takePhoto() {
     const v = this.videoEl;
+    const mirrored = this.facingMode !== "environment";
     const size = Math.min(v.videoWidth, v.videoHeight);
     this.canvasEl.width = size;
     this.canvasEl.height = size;
@@ -43,8 +52,10 @@ export class FaceCapture {
     const sx = (v.videoWidth - size) / 2;
     const sy = (v.videoHeight - size) / 2;
     ctx.save();
-    ctx.translate(size, 0);
-    ctx.scale(-1, 1); // match the mirrored preview
+    if (mirrored) {
+      ctx.translate(size, 0);
+      ctx.scale(-1, 1);
+    }
     ctx.drawImage(v, sx, sy, size, size, 0, 0, size, size);
     ctx.restore();
     this.stopCamera();

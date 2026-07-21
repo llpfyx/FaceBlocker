@@ -341,7 +341,9 @@ html, body {
   width: auto;
   height: auto;
 }
-#capture-video { transform: scaleX(-1); }
+/* Only mirror the front camera (selfie-style); the rear camera shows the
+   world as-is, so it must not be flipped or left/right would read backwards. */
+#capture-video.mirrored { transform: scaleX(-1); }
 #crop-overlay {
   position: absolute;
   inset: 0;
