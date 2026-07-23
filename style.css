@@ -316,6 +316,8 @@ html, body {
 .btn-primary { background: linear-gradient(180deg, var(--n3ds-blue), #2a5aa0); border-color: #1c3a6b; }
 .btn-ghost { background: transparent; opacity: .8; }
 .btn-lg { font-size: 20px; padding: 18px; }
+.icon-btn { font-size: 26px; padding: 14px; line-height: 1; }
+.icon-btn.btn-primary { font-size: 32px; }
 .btn-row { display: flex; gap: 10px; }
 .btn-row .btn { flex: 1; }
 .btn-row.wrap { flex-wrap: wrap; }

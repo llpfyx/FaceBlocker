@@ -2,15 +2,18 @@
 // glTF-modeled helmet for the top tier. No image-generation tool is
 // available in this environment, so tiers 0-2 are hand-drawn with Canvas 2D
 // paths/gradients instead of generated bitmaps. Helmets get more elaborate
-// as the phase tier rises:
-//   tier 0: robotic camera-eye dome (procedural) — reference design: a round
-//           yellow-green dome with a black visor band, a single glowing
-//           camera-lens "eye", and a whip antenna, echoing the classic
-//           face-shooter enemy look (a friendly-but-mechanical target head).
-//   tier 1: baseball helmet (procedural)
-//   tier 2: horned (viking-style) helmet (procedural)
+// as the phase tier rises, all sharing an anime-mecha-hero visual language
+// (angular glowing visors, blade crests, cel-shaded metal) rather than
+// plain toy shapes:
+//   tier 0: "cyber visor" — silver rookie helmet, single glowing cyan visor
+//           stripe, small forehead fin blade.
+//   tier 1: "blade crest" — indigo helmet, twin glowing magenta eye-slits,
+//           a swept-back mohawk-style blade crest, angular jaw plates.
+//   tier 2: "dual horn" — dark helmet, twin glowing red eye-slits, sharp
+//           blade-horns with a glowing leading edge.
 //   tier 3: "DamagedHelmet" — a real 3D model (CC BY 4.0, Khronos Group's
-//           official glTF sample assets — see assets/models/LICENSE.txt)
+//           official glTF sample assets — see assets/models/LICENSE.txt),
+//           with a kabuto-style procedural fallback if it fails to load.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
@@ -52,115 +55,161 @@ function drawDome(ctx, colorTop, colorBottom, ry = 92, rx = 96) {
   ctx.restore();
 }
 
-function tier0_simpleYellow() {
+// Angular glowing visor shared by all tiers — the main "anime mecha" signal.
+// `split` draws two separate glowing eye-slits (aggressive mecha-face look)
+// instead of one continuous stripe (cleaner rookie/visor look).
+function drawVisor(ctx, glowHex, { y = BASE_Y - 34, halfWidth = 64, height = 17, split = false } = {}) {
+  ctx.fillStyle = "#0d0f14";
+  ctx.beginPath();
+  ctx.moveTo(CX - halfWidth, y - height * 0.6);
+  ctx.lineTo(CX + halfWidth, y - height * 0.6);
+  ctx.lineTo(CX + halfWidth * 0.82, y + height);
+  ctx.lineTo(CX - halfWidth * 0.82, y + height);
+  ctx.closePath();
+  ctx.fill();
+
+  const drawGlow = (gx, gw) => {
+    const grad = ctx.createLinearGradient(gx - gw, y, gx + gw, y);
+    grad.addColorStop(0, "rgba(0,0,0,0)");
+    grad.addColorStop(0.5, glowHex);
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(gx, y + height * 0.15, gw, height * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  if (split) {
+    drawGlow(CX - halfWidth * 0.42, halfWidth * 0.34);
+    drawGlow(CX + halfWidth * 0.42, halfWidth * 0.34);
+  } else {
+    drawGlow(CX, halfWidth * 0.7);
+  }
+
+  // bright rim-light along the visor's top edge
+  ctx.save();
+  ctx.strokeStyle = glowHex;
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(CX - halfWidth, y - height * 0.6);
+  ctx.lineTo(CX + halfWidth, y - height * 0.6);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function tier0_cyberVisor() {
   const canvas = makeCanvas();
   const ctx = canvas.getContext("2d");
-  drawDome(ctx, "#e8e066", "#a8a026", 84, 92);
-  // brim
-  ctx.fillStyle = "#8f8a1e";
+  drawDome(ctx, "#f2f5fa", "#aab4c4", 84, 90);
+
+  // chin trim
+  ctx.fillStyle = "#7d8797";
   ctx.beginPath();
-  ctx.ellipse(CX, BASE_Y, 100, 14, 0, 0, Math.PI * 2);
+  ctx.ellipse(CX, BASE_Y, 96, 12, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // front visor band — a robotic camera-eye look
-  ctx.fillStyle = "#1c1c1c";
-  ctx.beginPath();
-  ctx.ellipse(CX, BASE_Y - 34, 62, 20, 0, 0, Math.PI * 2);
-  ctx.fill();
+  drawVisor(ctx, "#38e0ff", { y: BASE_Y - 36, halfWidth: 60, height: 16 });
 
-  // glowing cyan camera lens set into the visor
-  const lensGrad = ctx.createRadialGradient(CX, BASE_Y - 34, 2, CX, BASE_Y - 34, 16);
-  lensGrad.addColorStop(0, "#aef7ff");
-  lensGrad.addColorStop(0.5, "#33bcd6");
-  lensGrad.addColorStop(1, "#0a2f36");
-  ctx.fillStyle = lensGrad;
+  // small forehead fin blade
+  ctx.fillStyle = "#c3ccd8";
   ctx.beginPath();
-  ctx.arc(CX, BASE_Y - 34, 15, 0, Math.PI * 2);
+  ctx.moveTo(CX - 10, BASE_Y - 78);
+  ctx.lineTo(CX + 10, BASE_Y - 78);
+  ctx.lineTo(CX + 4, BASE_Y - 122);
+  ctx.lineTo(CX - 4, BASE_Y - 122);
+  ctx.closePath();
   ctx.fill();
-  ctx.strokeStyle = "#0a0a0a";
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#38e0ff";
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // small bolt rivets flanking the visor
-  ctx.fillStyle = "#5c5800";
+  // side vents
+  ctx.strokeStyle = "#5c6b7d";
+  ctx.lineWidth = 2;
+  for (const dir of [-1, 1]) {
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.moveTo(CX + dir * (68 + i * 6), BASE_Y - 8);
+      ctx.lineTo(CX + dir * (78 + i * 6), BASE_Y - 26);
+      ctx.stroke();
+    }
+  }
+  return toTexture(canvas);
+}
+
+function tier1_bladeCrest() {
+  const canvas = makeCanvas();
+  const ctx = canvas.getContext("2d");
+  drawDome(ctx, "#5f7fe0", "#1f3570", 88, 94);
+
+  // angular jaw plates
+  ctx.fillStyle = "#132250";
   for (const dir of [-1, 1]) {
     ctx.beginPath();
-    ctx.arc(CX + dir * 74, BASE_Y - 30, 5, 0, Math.PI * 2);
+    ctx.moveTo(CX + dir * 62, BASE_Y - 6);
+    ctx.lineTo(CX + dir * 92, BASE_Y + 6);
+    ctx.lineTo(CX + dir * 80, BASE_Y + 30);
+    ctx.lineTo(CX + dir * 54, BASE_Y + 14);
+    ctx.closePath();
     ctx.fill();
   }
 
-  // whip antenna
-  ctx.strokeStyle = "#8a8400";
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(CX, BASE_Y - 82);
-  ctx.lineTo(CX, BASE_Y - 118);
-  ctx.stroke();
-  ctx.fillStyle = "#ff5d5d";
-  ctx.beginPath();
-  ctx.arc(CX, BASE_Y - 122, 7, 0, Math.PI * 2);
-  ctx.fill();
-  return toTexture(canvas);
-}
+  drawVisor(ctx, "#ff49c8", { y: BASE_Y - 34, halfWidth: 64, height: 17, split: true });
 
-function tier1_baseball() {
-  const canvas = makeCanvas();
-  const ctx = canvas.getContext("2d");
-  drawDome(ctx, "#5b7fd6", "#25407a", 88, 94);
-  // ear flap
-  ctx.fillStyle = "#1c3260";
+  // swept-back mohawk-style blade crest
+  const crestGrad = ctx.createLinearGradient(0, BASE_Y - 140, 0, BASE_Y - 70);
+  crestGrad.addColorStop(0, "#8fa4ff");
+  crestGrad.addColorStop(1, "#2a3f8f");
+  ctx.fillStyle = crestGrad;
   ctx.beginPath();
-  ctx.ellipse(CX + 78, BASE_Y - 18, 22, 30, 0.2, 0, Math.PI * 2);
-  ctx.fill();
-  // brim/bill at the front
-  ctx.fillStyle = "#16264d";
-  ctx.beginPath();
-  ctx.ellipse(CX - 10, BASE_Y + 6, 62, 20, -0.05, 0, Math.PI);
-  ctx.fill();
-  // small logo dot
-  ctx.fillStyle = "#ffd23f";
-  ctx.beginPath();
-  ctx.arc(CX, BASE_Y - 60, 10, 0, Math.PI * 2);
-  ctx.fill();
-  return toTexture(canvas);
-}
-
-function hornPath(ctx, x, baseY, dir) {
-  // dir: -1 left horn, +1 right horn — curved taper from base to tip
-  const tipX = x + dir * 70;
-  const tipY = baseY - 96;
-  ctx.beginPath();
-  ctx.moveTo(x, baseY);
-  ctx.quadraticCurveTo(x + dir * 46, baseY - 40, tipX, tipY);
-  ctx.quadraticCurveTo(x + dir * 18, baseY - 30, x + dir * 16, baseY + 4);
+  ctx.moveTo(CX - 8, BASE_Y - 72);
+  ctx.lineTo(CX + 14, BASE_Y - 96);
+  ctx.lineTo(CX + 6, BASE_Y - 140);
+  ctx.lineTo(CX - 16, BASE_Y - 108);
   ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#ff49c8";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  return toTexture(canvas);
 }
 
 function tier2_horned() {
   const canvas = makeCanvas();
   const ctx = canvas.getContext("2d");
-  drawDome(ctx, "#8b95a0", "#454d57", 86, 92);
-  // metal band around the base
-  ctx.fillStyle = "#2c323a";
+  drawDome(ctx, "#3c3f47", "#131519", 86, 92);
+
+  ctx.fillStyle = "#0d0e11";
   ctx.beginPath();
   ctx.ellipse(CX, BASE_Y - 2, 96, 12, 0, 0, Math.PI * 2);
   ctx.fill();
-  // horns
-  const hornGrad = ctx.createLinearGradient(0, BASE_Y - 96, 0, BASE_Y);
-  hornGrad.addColorStop(0, "#f2e8d0");
-  hornGrad.addColorStop(1, "#c9b98f");
-  ctx.fillStyle = hornGrad;
-  hornPath(ctx, CX - 82, BASE_Y - 20, -1);
-  ctx.fill();
-  hornPath(ctx, CX + 82, BASE_Y - 20, 1);
-  ctx.fill();
-  // horn shading ridges
-  ctx.strokeStyle = "rgba(120,100,60,0.4)";
-  ctx.lineWidth = 2;
+
+  drawVisor(ctx, "#ff3b3b", { y: BASE_Y - 34, halfWidth: 62, height: 17, split: true });
+
+  const hornGrad = ctx.createLinearGradient(0, BASE_Y - 130, 0, BASE_Y);
+  hornGrad.addColorStop(0, "#5a1414");
+  hornGrad.addColorStop(1, "#1a0505");
+
+  // sharp blade-horns (replacing the old curved viking horns) with a
+  // glowing leading edge to match the visor
   for (const dir of [-1, 1]) {
+    const baseX = CX + dir * 78;
+    const baseY = BASE_Y - 22;
+    const tipX = baseX + dir * 56;
+    const tipY = baseY - 108;
+    ctx.fillStyle = hornGrad;
     ctx.beginPath();
-    ctx.moveTo(CX + dir * 82, BASE_Y - 20);
-    ctx.quadraticCurveTo(CX + dir * 128, BASE_Y - 60, CX + dir * 152, BASE_Y - 116);
+    ctx.moveTo(baseX - dir * 8, baseY + 4);
+    ctx.lineTo(baseX + dir * 14, baseY - 30);
+    ctx.lineTo(tipX, tipY);
+    ctx.lineTo(baseX + dir * 2, baseY - 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#ff3b3b";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(baseX + dir * 14, baseY - 30);
+    ctx.lineTo(tipX, tipY);
     ctx.stroke();
   }
   return toTexture(canvas);
@@ -187,6 +236,11 @@ function tier3_kabuto() {
   ctx.beginPath();
   ctx.ellipse(CX, BASE_Y, 96, 88, 0, Math.PI, 0, false);
   ctx.stroke();
+
+  // glowing red visor slit beneath the face guard, for a dramatic
+  // final-boss anime read instead of a flat empty face
+  drawVisor(ctx, "#ff2222", { y: BASE_Y - 30, halfWidth: 50, height: 14 });
+
   // crescent maegatate crest on the front
   ctx.save();
   ctx.fillStyle = "#ffd23f";
@@ -208,7 +262,7 @@ function tier3_kabuto() {
 }
 
 export function createHelmetTextures() {
-  return [tier0_simpleYellow(), tier1_baseball(), tier2_horned(), tier3_kabuto()];
+  return [tier0_cyberVisor(), tier1_bladeCrest(), tier2_horned(), tier3_kabuto()];
 }
 
 export function helmetTierForPhase(phase) {
